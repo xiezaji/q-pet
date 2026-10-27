@@ -1,7 +1,7 @@
 // 配置（localStorage）+ 角色包（内置 + IndexedDB 导入）+ 自定义动画 / 气泡外框
 import { idbGet, idbPut, idbDel, idbKeys, loadImage } from './util.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '2.0.0';
 export const BUILD = '2026-10-27';
 
 export const DEFAULTS = {
@@ -66,7 +66,7 @@ function fromBuiltin(id, j) {
 }
 
 function fromRecord(id, r) {
-  const voices = (r.voices || []).map(v => ({ text: v.text, url: URL.createObjectURL(v.blob) }));
+  const voices = (r.voices || []).map(v => ({ text: v.text, url: URL.createObjectURL(v.blob), blob: v.blob }));
   return {
     id, name: r.name, builtin: false,
     imageUrl: URL.createObjectURL(r.image), imageW: r.imageW, imageH: r.imageH,
@@ -86,6 +86,25 @@ export async function loadChars() {
       if (r) chars.set(k, fromRecord(k, r));
     }
   } catch (_) { /* 没有 IndexedDB 就只用内置角色 */ }
+  for (const [id, ch] of chars) {
+    const v = await loadVoiceOverride(id);
+    if (v) ch.voices = v;
+  }
+}
+
+// ---------------- 台词库 ----------------
+// 内置角色的语音是资源文件，改台词 / 删条目 / 新增语音都写一份副本到 IndexedDB，
+// 原文件不动；副本里的条目要么引用资源路径，要么带着新导入的 blob。
+async function loadVoiceOverride(charId) {
+  let rec = null;
+  try { rec = await idbGet('voices', charId); } catch (_) { return null; }
+  if (!Array.isArray(rec)) return null;
+  return rec.map(v => ({ text: v.text || '', url: v.blob ? URL.createObjectURL(v.blob) : v.url, blob: v.blob }));
+}
+
+export async function saveVoices(charId, voices) {
+  const rec = voices.map(v => (v.blob ? { text: v.text, blob: v.blob } : { text: v.text, url: v.url }));
+  await idbPut('voices', charId, rec);
 }
 
 export async function ensureImage(ch) {
@@ -111,6 +130,7 @@ export async function addChar(name, imageFile, voiceFiles) {
 export async function deleteChar(id) {
   await idbDel('chars', id);
   for (const s of ['idle', 'press', 'click', 'drag']) await idbDel('anims', `${id}|${s}`).catch(() => {});
+  await idbDel('voices', id).catch(() => {});
   chars.delete(id);
 }
 

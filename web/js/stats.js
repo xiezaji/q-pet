@@ -69,11 +69,3 @@ export function clearDay() {
   dirty = false;
   emit('stats', null);
 }
-
-export function clearAll() {
-  const ks = [];
-  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith(PREFIX)) ks.push(k); }
-  ks.forEach(k => localStorage.removeItem(k));
-  cur = blank();
-  dirty = false;
-}

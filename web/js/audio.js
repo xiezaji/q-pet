@@ -36,7 +36,6 @@ export function play(url, vol) {
   });
 }
 
-export const playing = () => !el.paused && !el.ended;
 export const knownDur = url => durCache.get(url) || 0;
 
 // 按压音放完前 40ms 接上松开音；提前松手就立刻放

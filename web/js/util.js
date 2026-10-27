@@ -83,9 +83,9 @@ let _db;
 function db() {
   if (_db) return _db;
   _db = new Promise((res, rej) => {
-    const r = indexedDB.open('qpet', 1);
+    const r = indexedDB.open('qpet', 2);
     r.onupgradeneeded = () => {
-      for (const s of ['chars', 'anims', 'frames']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s);
+      for (const s of ['chars', 'anims', 'frames', 'voices']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s);
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -106,5 +106,5 @@ export const idbPut = (s, k, v) => tx(s, 'readwrite', st => st.put(v, k));
 export const idbDel = (s, k) => tx(s, 'readwrite', st => st.delete(k));
 export const idbKeys = s => tx(s, 'readonly', st => st.getAllKeys());
 export async function idbClear() {
-  for (const s of ['chars', 'anims', 'frames']) await tx(s, 'readwrite', st => st.clear());
+  for (const s of ['chars', 'anims', 'frames', 'voices']) await tx(s, 'readwrite', st => st.clear());
 }

@@ -1,5 +1,5 @@
 // 使用统计页：日期 / 概览 / 键盘热力图 / 角色陪伴树图 / 导出
-import { el, mix, contrast, fmtSec, pad2, dayKey } from './util.js';
+import { el, mix, contrast, fmtSec, dayKey } from './util.js';
 import { chars, bus } from './store.js';
 import * as stats from './stats.js';
 import { button, combo, ask, accentSolid, squarify } from './ui.js';

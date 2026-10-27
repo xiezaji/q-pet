@@ -52,7 +52,10 @@ web/_edgeprofile/
 
 # 开发调试产物
 web/_final.js
-web/_serve.py
 web/chk.png
 web/final.png
 web/shot*.png
+
+# XAML 工具与本地备份：只提交构建用的校验脚本
+_ref/*
+!_ref/xamlgen.py

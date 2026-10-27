@@ -23,7 +23,6 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace PetApp
 {
@@ -100,7 +99,6 @@ namespace PetApp
         [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr h);
         [DllImport("gdi32.dll")] public static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFO pbmi, uint usage, out IntPtr bits, IntPtr section, uint offset);
         [DllImport("user32.dll")] public static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, ref POINT dst, ref SIZE size, IntPtr hdcSrc, ref POINT src, int crKey, ref BLENDFUNCTION blend, uint flags);
-        [DllImport("winmm.dll", CharSet = CharSet.Unicode)] public static extern bool PlaySoundW(string sound, IntPtr hmod, uint flags);
         // MCI：比 SoundPlayer 强的地方 —— ① close 是**即时**掐断（PlaySync 拦不住 Stop）
         //                          ② 能读到「实际播放位置」，这才是"到底播了多久"的硬证据
         [DllImport("winmm.dll", CharSet = CharSet.Unicode)] public static extern int mciSendStringW(string cmd, System.Text.StringBuilder ret, int len, IntPtr hwnd);
@@ -115,12 +113,28 @@ namespace PetApp
         const int WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202, WM_MOUSEMOVE = 0x0200, WM_RBUTTONUP = 0x0205;
         const int WM_MOUSEWHEEL = 0x020A;
         const int WM_COMMAND = 0x0111, WM_APP = 0x8000;
+        // 系统事件：显示器布局/分辨率变化、DPI 变化、休眠唤醒。不处理的话副屏一拔桌宠就消失。
+        const int WM_DISPLAYCHANGE = 0x007E;
+        const int WM_DPICHANGED = 0x02E0;
+        const int WM_POWERBROADCAST = 0x0218;
+        const int PBT_APMSUSPEND = 0x0004, PBT_APMRESUMEAUTOMATIC = 0x0012, PBT_APMRESUME = 0x0007;
+        const int WM_PET_ACTIVATE = 0x8005;      // 第二个实例发来的「把你叫出来」
         const int HTTRANSPARENT = -1, HTCLIENT = 1;
         const int SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010;
+
+        // ---- 全屏隐藏：前台窗口是否铺满整块屏幕 ----
+        const int SW_HIDE = 0;
+        const uint MONITOR_DEFAULTTONEAREST = 2;
+        const uint MONITOR_DEFAULTTONULL = 0;
+        [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
+        [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool GetMonitorInfoW(IntPtr hMon, ref MONITORINFO mi);
+        [StructLayout(LayoutKind.Sequential)] struct MONITORINFO
+        {
+            public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags;
+        }
         static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-        const uint SND_ASYNC = 0x0001, SND_FILENAME = 0x00020000, SND_NODEFAULT = 0x0002;
-        const uint MF_STRING = 0x0000, MF_SEPARATOR = 0x0800;
-        static readonly IntPtr TPM_RETURNCMD = new IntPtr(0x0100);
+        const uint MF_STRING = 0x0000;
 
         // ---------------- 运行时状态 ----------------
         static IntPtr _hwnd = IntPtr.Zero, _memDc = IntPtr.Zero, _hBitmap = IntPtr.Zero, _screenDc = IntPtr.Zero;
@@ -133,7 +147,7 @@ namespace PetApp
         static string _baseDir = "";
         static string _charName = "", _charDir = "";   // 当前角色包（chars\<角色>）
         static byte[] _frames;
-        static int _w, _h, _idleN, _pressN, _clickN, _dragN, _fps, _frameBytes;
+        static int _w, _h, _idleN, _pressN, _clickN, _dragN, _frameBytes;
         static int _frameIndex = 0, _tick = 0;
         static int _lang = 0, _langCount = 0;
         static bool _dragging = false, _dragMoved = false;
@@ -144,7 +158,7 @@ namespace PetApp
         static int _phaseStart = 0;
         static double _dragPhase = 0;                // 拖动帧累加器（支持倍速）
         static int _schedAt = 0; static string _schedPath = "";
-        static int _pressStartMs = 0;
+        static int _posSavedAt = 0;               // 上次把位置写进 pet-pos.txt 的时刻（拖动中节流用）
 
         // ---------------- 使用统计（🔒 本地、只计数、不联网） ----------------
         // 键盘：只累计「每个虚拟键码被按了多少次」——不记录顺序、不记录字符、不还原输入内容。
@@ -160,6 +174,7 @@ namespace PetApp
         static string _charTimeFile = "";
         static int _screenSec = 0, _activeSec = 0, _idleSec = 0;
         static int _statsLastTick = 0, _statsLastFlush = 0;
+        static bool _statsPaused = false;      // 系统休眠期间不累计（唤醒后也不会把睡眠时长补记进来）
         static bool _statsDirty = false;           // 有变化才落盘（设置面板靠这个文件实时刷新）
         static string _statsDay = "";
         static int _lastFgPid = 0; static string _lastFgName = "";
@@ -169,6 +184,8 @@ namespace PetApp
         [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO lii);
         [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
         static int _holdMs = 110;
+        static bool _hideFs = true;         // 全屏隐藏（设置面板「通用设置 → 全屏隐藏」）
+        static bool _fsHidden = false;      // 当前是否正因全屏而隐藏
 
         // ---------------- 音量 / 动画（设置面板可调） ----------------
         // 音量：0–100，>0 且 <100 时把 wav 采样按比例衰减后播放（缓存到 pet-vol-cache），
@@ -206,7 +223,6 @@ namespace PetApp
         static float _bubbleFontPt = 10.5f;         // 气泡字号（pt，可调；长文本不缩字号，改为滚动）
         static Color? _bubbleInkFix = null;         // 固定文字颜色（bubbleInk=#RRGGBB；auto = 跟着底色自动）
         static float _bubbleScroll = 0f;            // 长文本滚动偏移（px）：滚轮或拖动驱动，不自动滚
-        static int _bubbleWheelAt = 0;              // 上次滚轮时间（仅用于日志记录）
         static bool _bubbleDragging = false;        // 在气泡上按住拖动 = 滚动文本（不是拖角色）
         static int _bubbleDragLastY = 0;
         static int _voiceStartedAt = 0, _voiceDurMs = 0;   // 当前正在放的声音（自动音要靠它排队，别互相截断）
@@ -271,10 +287,10 @@ namespace PetApp
                 _durCache[path] = ms;
                 return ms;
             }
-            catch (Exception) { return 0; }
+            catch (Exception ex) { LogErr("WavDurationMs", ex); return 0; }
         }
 
-        // 所有播放都走这里。PlaySound 一次只放一个音 => 每次起播都会掐掉上一个。
+        // 所有播放都走这里。同一时刻只放一个音 => 每次起播都会掐掉上一个。
         // 所以只要"上一个还没播完"，就写一条带来源的日志 —— 这样"没播完"到底被谁掐的，一眼可查。
         static void VoiceEx(string path, string reason)
         {
@@ -296,7 +312,7 @@ namespace PetApp
                     _playReq = path;
                 }
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("VoiceEx", ex); }
         }
 
         static void Voice(string path)
@@ -315,18 +331,88 @@ namespace PetApp
                 mciSendStringW(cmd, sb, 300, IntPtr.Zero);
                 return sb.ToString();
             }
-            catch (Exception) { return ""; }
+            catch (Exception ex) { LogErr("Mci", ex); return ""; }
         }
 
         // ---------------- 音量：按比例衰减 wav 采样 ----------------
         // 为什么不直接用 MCI 的 setaudio volume：waveaudio 驱动不一定实现它（实现了也常被
         // Windows 的每应用音量覆盖），而且音量变了还要能立刻听到。直接改采样最稳：
         //   100% → 原文件；0–99% → 生成一份衰减副本，按 (原路径 + 音量) 缓存。
-        static string FnvHash(string s)
+        // 实现在 Core.cs（与设置面板共用一份；Tests 工程对它跑断言）
+        static string FnvHash(string s) { return QCore.FnvHash(s); }
+
+        // 缓存文件名是「源路径哈希 + 音量」，反推不出源文件 ⇒ 单独记一份索引，
+        // 启动时按索引清理：源语音没了（换角色 / 删角色 / 素材改名）就把它那份缓存删掉。
+        // 以前从不清 ⇒ 音量档 × 语音数，几十兆 wav 会一直堆在目录里。
+        static string _volDir = "";
+        static readonly Dictionary<string, string> _volIndex = new Dictionary<string, string>();   // 缓存文件名 → 源 wav
+
+        static string VolIndexPath { get { return Path.Combine(_volDir, "index.txt"); } }
+
+        static void NoteVolIndex(string dstName, string src)
         {
-            uint h = 2166136261;
-            for (int i = 0; i < s.Length; i++) { h ^= s[i]; h *= 16777619; }
-            return h.ToString("x8");
+            try
+            {
+                if (_volIndex.ContainsKey(dstName)) return;
+                _volIndex[dstName] = src;
+                File.AppendAllText(VolIndexPath, dstName + "=" + src + "\r\n");
+            }
+            catch (Exception ex) { LogErr("NoteVolIndex", ex); }
+        }
+
+        static void LoadVolIndex()
+        {
+            try
+            {
+                if (_volIndex.Count > 0 || !File.Exists(VolIndexPath)) return;
+                foreach (string line in File.ReadAllLines(VolIndexPath))
+                {
+                    if (line.Length == 0) continue;
+                    int eq = line.IndexOf('=');
+                    if (eq <= 0) continue;
+                    _volIndex[line.Substring(0, eq)] = line.Substring(eq + 1);
+                }
+            }
+            catch (Exception) { }
+        }
+
+        static void CleanVolCache()
+        {
+            try
+            {
+                if (!Directory.Exists(_volDir)) return;
+                LoadVolIndex();
+                int dropped = 0;
+                List<string> dead = new List<string>();
+                foreach (KeyValuePair<string, string> kv in new List<KeyValuePair<string, string>>(_volIndex))
+                {
+                    string dst = Path.Combine(_volDir, kv.Key);
+                    bool stale = false;
+                    try { stale = (DateTime.Now - File.GetLastWriteTime(dst)).TotalDays > 30; } catch (Exception) { }
+                    // 源文件没了 / 缓存本身没了 / 30 天没用过 ⇒ 都不用留
+                    if (!File.Exists(kv.Value) || !File.Exists(dst) || stale)
+                    {
+                        try { if (File.Exists(dst)) File.Delete(dst); } catch (Exception) { }
+                        dead.Add(kv.Key); dropped++;
+                    }
+                }
+                foreach (string k in dead) _volIndex.Remove(k);
+                // 没有索引记录的孤儿 wav（旧版本留下来的）也清掉
+                foreach (string f in Directory.GetFiles(_volDir, "*.wav"))
+                {
+                    string n = Path.GetFileName(f);
+                    if (_volIndex.ContainsKey(n)) continue;
+                    try { File.Delete(f); dropped++; } catch (Exception) { }
+                }
+                if (dropped > 0)
+                {
+                    StringBuilder sb = new StringBuilder();
+                    foreach (KeyValuePair<string, string> kv in _volIndex) sb.AppendLine(kv.Key + "=" + kv.Value);
+                    File.WriteAllText(VolIndexPath, sb.ToString());
+                    Status("音量缓存清理: 删除 " + dropped + " 个失效副本，保留 " + _volIndex.Count + " 个");
+                }
+            }
+            catch (Exception) { }
         }
 
         static string PrepareVolumeFile(string path, int vol)
@@ -337,15 +423,19 @@ namespace PetApp
                 string key = vol + "|" + path;
                 string hit;
                 if (_volCache.TryGetValue(key, out hit) && File.Exists(hit)) return hit;
-                string dir = Path.Combine(_baseDir, "pet-vol-cache");
-                Directory.CreateDirectory(dir);
-                string dst = Path.Combine(dir, FnvHash(path) + ".v" + vol + ".wav");
+                if (_volDir == "") _volDir = Path.Combine(_baseDir, "pet-vol-cache");
+                Directory.CreateDirectory(_volDir);
+                string name = FnvHash(path) + ".v" + vol + ".wav";
+                string dst = Path.Combine(_volDir, name);
                 if (!File.Exists(dst) || File.GetLastWriteTimeUtc(dst) < File.GetLastWriteTimeUtc(path))
+                {
                     if (!WriteScaledWav(path, dst, vol)) return path;
+                    NoteVolIndex(name, path);          // 只在新生成时记一笔
+                }
                 _volCache[key] = dst;
                 return dst;
             }
-            catch (Exception) { return path; }
+            catch (Exception ex) { LogErr("PrepareVolumeFile", ex); return path; }
         }
 
         // 只处理 16bit / 8bit PCM（本项目所有语音都是 pcm_s16le）；
@@ -443,7 +533,7 @@ namespace PetApp
                         Status("音频层播完: " + Path.GetFileName(pth) + "  实际位置 " + pos + "ms / 文件时长 "
                                + (len > 0 ? len : WavDurationMs(pth)) + "ms");
                     }
-                    catch (Exception) { }
+                    catch (Exception ex) { LogErr("InitPlayThread", ex); }
                 }
             });
             _playThread.IsBackground = true;
@@ -453,19 +543,6 @@ namespace PetApp
         static int VoiceFreeInMs()
         {
             return (_voiceStartedAt + _voiceDurMs + 250) - Now;   // >0 表示还有话没说完
-        }
-
-        // 自动音（例如松开音等）**绝不打断**正在说的台词：先排队，等说完再放。
-        static void AutoVoice(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return;
-            int free = VoiceFreeInMs();
-            if (free > 0 && _voiceDurMs > 0)
-            {
-                _schedPath = path; _schedAt = Now + free;
-                Status("自动音排队: " + Path.GetFileName(path) + "（等当前语音说完，约 " + free + "ms）");
-            }
-            else Voice(path);
         }
 
         static string LangVoice(string slot)
@@ -488,12 +565,7 @@ namespace PetApp
             return (v * 100).ToString("0", CultureInfo.InvariantCulture) + "%";
         }
 
-        static string FmtSec(int s)
-        {
-            if (s < 60) return s + " 秒";
-            if (s < 3600) return (s / 60) + " 分 " + (s % 60) + " 秒";
-            return (s / 3600) + " 小时 " + ((s % 3600) / 60) + " 分";
-        }
+        static string FmtSec(int s) { return QCore.FmtSec(s); }   // 实现在 Core.cs
 
         // ---------------- 动画状态机 ----------------
         // 四类动画各有一个开关（设置面板「动画」页）：
@@ -608,7 +680,7 @@ namespace PetApp
                     }
                 }
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("LoadPos", ex); }
             if (x == int.MinValue || y == int.MinValue)
             {
                 int sw = GetSystemMetrics(0), sh = GetSystemMetrics(1);
@@ -625,7 +697,98 @@ namespace PetApp
                 RECT r; GetWindowRect(_hwnd, out r);
                 File.WriteAllText(p, "x=" + r.Left + "\r\ny=" + (r.Top + _bubbleH) + "\r\n");   // 存「角色」位置
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("SavePos", ex); }
+        }
+
+        // ---------------- 位置可见性：老位置可能落在已经拔掉的显示器上 ----------------
+        // 以前只按「主屏分辨率」夹一次：副屏拔了 / 改了分辨率 / 换了显示器排布，
+        // 桌宠就可能停在屏幕外，用户只能手删 pet-pos.txt。这里改成按「任一显示器的工作区」判。
+        static bool WorkAreaAt(POINT pt, out RECT wa)
+        {
+            wa = new RECT();
+            try
+            {
+                IntPtr mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONULL);
+                if (mon == IntPtr.Zero) return false;
+                MONITORINFO mi = new MONITORINFO();
+                mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+                if (!GetMonitorInfoW(mon, ref mi)) return false;
+                wa = mi.rcWork;
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
+
+        static bool ClampToVisible(ref int x, ref int y, bool log)
+        {
+            bool changed = false;
+            try
+            {
+                POINT c = new POINT();
+                c.X = x + _w / 2; c.Y = y + _h / 2;
+                RECT wa;
+                bool moved = false;
+                if (!WorkAreaAt(c, out wa))
+                {
+                    // 不在任何显示器上 → 回主屏右下角（和首次启动的默认位一致）
+                    POINT home = new POINT(); home.X = 0; home.Y = 0;
+                    if (!WorkAreaAt(home, out wa))
+                    {
+                        wa.Left = 0; wa.Top = 0;
+                        wa.Right = GetSystemMetrics(0); wa.Bottom = GetSystemMetrics(1);
+                    }
+                    x = Math.Max(wa.Left, wa.Right - _w - 40);
+                    y = Math.Max(wa.Top + _bubbleH, wa.Bottom - _h - 80);
+                    moved = true;
+                }
+                int ox = x, oy = y;
+                if (x + _w > wa.Right) x = wa.Right - _w;
+                if (x < wa.Left) x = wa.Left;
+                if (y - _bubbleH < wa.Top) y = wa.Top + _bubbleH;      // 窗口上沿 = 角色 Y - 气泡高
+                if (y + _h > wa.Bottom) y = wa.Bottom - _h;
+                changed = moved || x != ox || y != oy;
+                if (changed && log) Status("位置夹取: " + ox + "," + oy + " → " + x + "," + y
+                        + "（可视工作区 " + wa.Left + "," + wa.Top + "–" + wa.Right + "," + wa.Bottom + "）");
+            }
+            catch (Exception ex) { LogErr("ClampToVisible", ex); }
+            return changed;
+        }
+
+        // 显示器/分辨率变了之后把桌宠拉回可视区（并返回是否动过）
+        static bool RepositionToVisible(string why)
+        {
+            try
+            {
+                RECT wr; GetWindowRect(_hwnd, out wr);
+                int nx = wr.Left, ny = wr.Top + _bubbleH;
+                bool changed = ClampToVisible(ref nx, ref ny, false);
+                if (changed)
+                {
+                    SetWindowPos(_hwnd, HWND_TOPMOST, nx, ny - _bubbleH, _w, _h + _bubbleH, SWP_NOACTIVATE);
+                    Status(why + " → 位置已夹回可视区: " + nx + "," + ny);
+                    SavePos();
+                    Blit();
+                }
+                else Status(why + " → 位置无需调整");
+                return changed;
+            }
+            catch (Exception ex) { LogErr("RepositionToVisible", ex); return false; }
+        }
+
+        // DPI 变了：精灵图保持原始像素（放大只会糊），但气泡文字要跟着放大才看得清
+        static void ApplyDpiToBubble(uint dpi)
+        {
+            try
+            {
+                if (_bubbleH <= 0 || _g == null) return;
+                double scale = dpi > 0 ? dpi / 96.0 : 1.0;
+                float fs = (float)Math.Max(6.0, Math.Min(36.0, _bubbleFontPt * scale));
+                if (_font != null) { try { _font.Dispose(); } catch (Exception) { } }
+                _font = new Font(_bubbleFont, fs, FontStyle.Regular, GraphicsUnit.Point);
+                Status("气泡字号随 DPI 调整: " + _bubbleFontPt.ToString("0.0") + "pt → "
+                       + fs.ToString("0.0", CultureInfo.InvariantCulture) + "pt（" + dpi + " dpi）");
+            }
+            catch (Exception ex) { LogErr("ApplyDpiToBubble", ex); }
         }
 
         // ---------------- 托盘图标（右键菜单已按要求**完全取消**） ----------------
@@ -689,7 +852,7 @@ namespace PetApp
                     }
                 }
             }
-            catch (Exception) { return IntPtr.Zero; }
+            catch (Exception ex) { LogErr("IconFromImageFile", ex); return IntPtr.Zero; }
         }
 
         static void AddTrayIcon()
@@ -728,7 +891,7 @@ namespace PetApp
                 _trayAdded = false;
                 if (_trayIcon != IntPtr.Zero) { DestroyIcon(_trayIcon); _trayIcon = IntPtr.Zero; }
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("RemoveTrayIcon", ex); }
         }
 
         // 右键托盘图标 → 菜单：打开设置 / 关闭桌宠
@@ -809,7 +972,7 @@ namespace PetApp
                 if (!string.IsNullOrEmpty(p) && File.Exists(p))
                     _lines = File.ReadAllLines(p);
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("LoadLines", ex); }
             // 带语音的台词清单（每行：文字 <TAB> wav 路径）。
             // 点她 = 气泡显示这句 + 播**这句自己的**语音 ⇒ 文字与声音必然一致。
             try
@@ -831,7 +994,7 @@ namespace PetApp
                     _lineText = tx.ToArray(); _linePath = fp.ToArray();
                 }
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("LoadLines", ex); }
             Status("气泡台词池 " + _lines.Length + " 条；带语音 " + _lineText.Length + " 条；气泡区高 " + _bubbleH + "px");
         }
 
@@ -885,7 +1048,7 @@ namespace PetApp
             _bubbleText = text;
             _bubbleUntil = Now + ms;
             _bubbleShownAt = Now;
-            _bubbleScroll = 0; _bubbleWheelAt = 0; _bubbleDragging = false;   // 换一句就回到顶部，等用户自己滚
+            _bubbleScroll = 0; _bubbleDragging = false;   // 换一句就回到顶部，等用户自己滚
             Status("气泡: " + text.Replace("\n", " / "));
         }
 
@@ -924,13 +1087,6 @@ namespace PetApp
             p.AddArc(r - d, b - d, d, d, 0, 90);
             p.AddArc(l, b - d, d, d, 90, 90);
             p.CloseFigure();
-            return p;
-        }
-
-        static GraphicsPath EllipsePath(float l, float t, float r, float b)
-        {
-            GraphicsPath p = new GraphicsPath();
-            p.AddEllipse(l, t, Math.Max(1f, r - l), Math.Max(1f, b - t));
             return p;
         }
 
@@ -1319,14 +1475,99 @@ namespace PetApp
             Marshal.Copy(buf, 0, _bits, buf.Length);
         }
 
+        // ---- 全屏隐藏 ----
+        // 判据只有一条：前台窗口的矩形盖住了它所在显示器的**整块**屏幕（含任务栏那条）。
+        // 最大化窗口只盖工作区、压不到任务栏，所以不会被误判；无边框全屏游戏 / 播放器两条都盖住。
+        static bool ForegroundIsFullscreen()
+        {
+            IntPtr fg = GetForegroundWindow();
+            if (fg == IntPtr.Zero || fg == _hwnd) return false;
+            RECT r;
+            if (!GetWindowRect(fg, out r)) return false;
+            if (r.Right - r.Left < 200 || r.Bottom - r.Top < 200) return false;
+            IntPtr mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+            if (mon == IntPtr.Zero) return false;
+            MONITORINFO mi = new MONITORINFO();
+            mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            if (!GetMonitorInfoW(mon, ref mi)) return false;
+            RECT m = mi.rcMonitor;
+            const int tol = 2;      // 无边框窗口常见 ±1px 误差
+            return r.Left <= m.Left + tol && r.Top <= m.Top + tol
+                && r.Right >= m.Right - tol && r.Bottom >= m.Bottom - tol;
+        }
+
+        static void CheckFullscreen()
+        {
+            bool fs = _hideFs && ForegroundIsFullscreen();
+            if (fs == _fsHidden) return;              // 状态没变：每秒只做一次判定，别碰窗口
+            _fsHidden = fs;
+            ShowWindow(_hwnd, fs ? SW_HIDE : SW_SHOWNOACTIVATE);
+            if (!fs)
+            {
+                // 回来时重新顶一次：退出全屏的程序常把 z 序改乱，不顶就被压在下面
+                SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                Blit();
+            }
+            Status("全屏隐藏: " + (fs ? "已隐藏（前台全屏）" : "已恢复显示"));
+        }
+
         // ---------------- 窗口过程 ----------------
         static IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
             switch ((int)msg)
             {
+                // 第二个实例启动 → 把设置面板叫出来（双击两次不再毫无反应）
+                case WM_PET_ACTIVATE:
+                    Status("收到「叫出来」请求（第二个实例启动）→ 打开设置面板");
+                    OpenSettings();
+                    return (IntPtr)0;
+
+                // 显示器分辨率 / 排布变了（拔副屏、投影、改缩放）→ 把桌宠拉回可视区
+                case WM_DISPLAYCHANGE:
+                    RepositionToVisible("显示器变化 " + ((int)wParam.ToInt64() & 0xFFFF)
+                        + "x" + (((int)wParam.ToInt64() >> 16) & 0xFFFF));
+                    return (IntPtr)0;
+
+                // 窗口被拖到另一块 DPI 不同的显示器 / 系统缩放被改
+                case WM_DPICHANGED:
+                {
+                    uint dpi = (uint)(wParam.ToInt64() & 0xFFFF);
+                    RECT sug = new RECT();
+                    try { sug = (RECT)Marshal.PtrToStructure(lParam, typeof(RECT)); } catch (Exception) { }
+                    Status("DPI 变化 → " + dpi + "（" + (dpi / 96.0).ToString("0.00", CultureInfo.InvariantCulture)
+                        + "x），建议窗口 " + sug.Left + "," + sug.Top);
+                    int nx = sug.Left, ny = sug.Top + _bubbleH;
+                    ClampToVisible(ref nx, ref ny, true);
+                    SetWindowPos(_hwnd, HWND_TOPMOST, nx, ny - _bubbleH, _w, _h + _bubbleH, SWP_NOACTIVATE);
+                    ApplyDpiToBubble(dpi);
+                    Blit();
+                    SavePos();
+                    return (IntPtr)0;
+                }
+
+                // 休眠：统计先落盘再暂停；唤醒：重置计时基准，别把睡着的几小时补记成使用时长
+                case WM_POWERBROADCAST:
+                {
+                    int ev = (int)wParam.ToInt64();
+                    if (ev == PBT_APMSUSPEND)
+                    {
+                        _statsPaused = true;
+                        FlushStats();
+                        Status("系统休眠 → 统计暂停并已落盘");
+                    }
+                    else if (ev == PBT_APMRESUMEAUTOMATIC || ev == PBT_APMRESUME)
+                    {
+                        _statsPaused = false;
+                        _statsLastTick = 0;          // 下次 StatsTick 的 dt 从 0 起算
+                        Status("系统唤醒 → 统计恢复（休眠时长不计入）");
+                    }
+                    return (IntPtr)1;
+                }
+
                 case WM_TIMER:
                     _tick++;
                     if (_tick % 30 == 0) StatsTick();                  // ~每秒：屏幕/软件使用统计
+                    if (_tick % 30 == 0) CheckFullscreen();            // ~每秒：全屏就让开
                     if (_tick % 10 == 0) FlushLog();                  // 日志批量落盘（不占点击路径）
                     if (_testClicksLeft > 0 && Now >= _testClickNextAt)   // 自检：模拟连击
                     {
@@ -1428,7 +1669,6 @@ namespace PetApp
                         Voice(LangVoice("press"));
                         int dur = WavDurationMs(LangVoice("press"));
                         _schedPath = "";                                  // 取消上一条排期
-                        _pressStartMs = Now;
                         if (dur > 0) { _schedPath = LangVoice("release"); _schedAt = Now + Math.Max(0, dur - 40); }
                     }
                     _dragging = true; _dragMoved = false;
@@ -1452,7 +1692,12 @@ namespace PetApp
                         int dx = p.X - _dragOrigin.X, dy = p.Y - _dragOrigin.Y;
                         if (!_dragMoved && (Math.Abs(dx) > 4 || Math.Abs(dy) > 4)) { _dragMoved = true; Status("drag start -> 悬空摆动帧"); }
                         if (_dragMoved)
+                        {
                             SetWindowPos(hWnd, HWND_TOPMOST, _dragRect.Left + dx, _dragRect.Top + dy, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+                            // 拖动中每 150ms 落一次位置：设置面板的「位置」读数是轮询这个文件的，
+                            // 只在松手时写的话，界面上要等拖完才跳数字。
+                            if (unchecked(Now - _posSavedAt) > 150) { _posSavedAt = Now; SavePos(); }
+                        }
                     }
                     return IntPtr.Zero;
 
@@ -1486,7 +1731,6 @@ namespace PetApp
                         {
                             _bubbleScroll += (d > 0 ? -18 : 18);
                             if (_bubbleScroll < 0) _bubbleScroll = 0;
-                            _bubbleWheelAt = Now;
                         }
                         return IntPtr.Zero;
                     }
@@ -1615,7 +1859,7 @@ namespace PetApp
                 SizeF need = _g.MeasureString(_bubbleText, _font, (int)Math.Max(12f, _textRect.Width));
                 return need.Height + 6f > _textRect.Height;
             }
-            catch (Exception) { return false; }
+            catch (Exception ex) { LogErr("BubbleNeedsScroll", ex); return false; }
         }
 
         // 把滚动偏移夹到合法范围。需要时重新测量文字高度（与绘制同一套逻辑）。
@@ -1630,7 +1874,7 @@ namespace PetApp
                 if (total <= _textRect.Height) return 0f;
                 return Math.Max(0f, total - _textRect.Height + 8f);
             }
-            catch (Exception) { return 0f; }
+            catch (Exception ex) { LogErr("ClampBubbleScrollMax", ex); return 0f; }
         }
 
         static void ClampBubbleScroll()
@@ -1658,7 +1902,6 @@ namespace PetApp
             _bubbleScroll += (delta > 0 ? -42f : 42f);
             // 上下都要夹：只夹下限会导致超出可滚范围（滚动条指示错位、文字滚过头留白）
             ClampBubbleScroll();
-            _bubbleWheelAt = Now;
             Status("气泡手动滚动 → " + (int)_bubbleScroll + "px");
         }
 
@@ -1682,7 +1925,7 @@ namespace PetApp
                 }
                 if (_statsDay == "") _statsDay = DateTime.Now.ToString("yyyy-MM-dd");
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("LoadStats", ex); }
         }
 
         static void LoadCharTime()
@@ -1700,7 +1943,7 @@ namespace PetApp
                         _charTotalSec[line.Substring(0, eq).Trim()] = n;
                 }
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("LoadCharTime", ex); }
         }
 
         static void FlushStats()
@@ -1721,7 +1964,7 @@ namespace PetApp
                 File.WriteAllText(_statsFile, sb.ToString(), Encoding.UTF8);
                 // 按天归档：每天一份（pet-stats-YYYY-MM-DD.txt），设置面板可回看历史
                 try { File.WriteAllText(Path.Combine(_baseDir, "pet-stats-" + _statsDay + ".txt"), sb.ToString(), Encoding.UTF8); }
-                catch (Exception) { }
+                catch (Exception ex) { LogErr("FlushStats", ex); }
 
                 // 角色累计时长单独一个文件：跨天/清空今日统计都不会丢
                 if (_charTimeFile != "")
@@ -1732,7 +1975,7 @@ namespace PetApp
                 }
                 _statsDirty = false;
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("FlushStats", ex); }
         }
 
         // 每秒一次：屏幕使用 / 前台软件 / 定期落盘
@@ -1740,6 +1983,7 @@ namespace PetApp
         {
             try
             {
+                if (_statsPaused) return;          // 系统休眠中：不累计也不补记
                 int now = Now;
                 // 设置面板点「清空统计」→ 写 pet-stats-reset.txt；这里连内存计数一起清零，
                 // 否则几秒后又会把旧数据写回文件。
@@ -1757,7 +2001,7 @@ namespace PetApp
                         Status("统计已按设置面板要求清空");
                     }
                 }
-                catch (Exception) { }
+                catch (Exception ex) { LogErr("StatsTick", ex); }
                 int dt = _statsLastTick == 0 ? 0 : (now - _statsLastTick) / 1000;
                 if (dt < 0 || dt > 60) dt = 0;
                 _statsLastTick = now;
@@ -1782,6 +2026,20 @@ namespace PetApp
                     _charTotalSec[_charName] = c + dt;
                 }
                 if (dt > 0) _statsDirty = true;
+
+                // 跨天：必须在「挂机就 return」之前判 —— 以前挂在后面，机器一整晚没人动
+                // 就永远翻不了天，第二天的数据全算在前一天头上。
+                string today0 = DateTime.Now.ToString("yyyy-MM-dd");
+                if (_statsDay != today0)
+                {
+                    FlushStats();                      // 先把昨天的数据存盘
+                    _screenSec = 0; _activeSec = 0; _idleSec = 0;
+                    _appSec.Clear(); _keyCount.Clear(); _charDaySec.Clear();
+                    _statsDay = today0;
+                    _statsDirty = true;
+                    Status("统计已跨天重置: " + today0);
+                }
+
                 if (!active || dt == 0) return;
 
                 IntPtr fg = GetForegroundWindow();
@@ -1799,20 +2057,8 @@ namespace PetApp
                 int cur;
                 _appSec.TryGetValue(name, out cur);
                 _appSec[name] = cur + dt;
-
-                string today = DateTime.Now.ToString("yyyy-MM-dd");
-                if (_statsDay != today)
-                {
-                    FlushStats();                      // 先把昨天的数据存盘
-                    // 跨天：清空内存计数，今天从 0 开始
-                    _screenSec = 0; _activeSec = 0; _idleSec = 0;
-                    _appSec.Clear(); _keyCount.Clear(); _charDaySec.Clear();
-                    _statsDay = today;
-                    _statsDirty = true;
-                    Status("统计已跨天重置: " + today);
-                }
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("StatsTick", ex); }
         }
 
         [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
@@ -1820,8 +2066,94 @@ namespace PetApp
         [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
         [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
         [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
+
+        // ---------------- 空 catch 的兜底日志 ----------------
+        // 以前 catch {} 全裸 ⇒ 出问题只能靠猜。这里统一落 pet-error.log（只记一行，不刷屏）。
+        static string _errFile = "";
+        static readonly System.Collections.Generic.HashSet<string> _errOnce =
+            new System.Collections.Generic.HashSet<string>();
+        static void LogErr(string where, Exception ex)
+        {
+            try
+            {
+                string key = where;                       // 同一处只记一次，避免每 33ms 刷一次盘
+                lock (_errOnce) { if (!_errOnce.Add(key)) return; }
+                string p = _errFile != "" ? _errFile : Path.Combine(_baseDir, "pet-error.log");
+                File.AppendAllText(p, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + where
+                    + "  " + (ex != null ? ex.GetType().Name + ": " + ex.Message : "") + "\r\n");
+            }
+            catch (Exception) { }      // 日志本身写不了就真没办法了，别递归
+        }
+
+        // ---------------- 第二个实例：把它「叫出来」，别静默退出 ----------------
+        // 以前拿不到互斥体直接 return ⇒ 用户双击两次以为程序坏了，且毫无痕迹。
+        public static void NotifyExistingInstance(string dir)
+        {
+            try
+            {
+                // 这个进程马上就退出了，先把落盘路径补齐，日志才写得进 exe 同目录
+                if (_baseDir == "") _baseDir = dir;
+                if (_statusFile == "") _statusFile = Path.Combine(dir, "pet-status.txt");
+                Status("已有实例在运行 → 本次不启动（已请它打开设置面板）");
+                FlushLog();
+                IntPtr h = FindWindowW("PetWndClass", "Pet");
+                if (h != IntPtr.Zero) PostMessageW(h, (uint)WM_PET_ACTIVATE, IntPtr.Zero, IntPtr.Zero);
+                else Status("⚠ 互斥体被占用但没找到桌宠窗口（可能是残留进程）");
+                FlushLog();
+            }
+            catch (Exception ex) { LogErr("NotifyExistingInstance", ex); }
+        }
 
         // ---------------- 状态文件（可验证通道：DPI 是否生效、窗口矩形、钩子句柄） ----------------
+        // 轮转：pet-status.txt 永远只放「今天」，跨天时把昨天的挪成 pet-status-YYYY-MM-DD.txt，
+        // 归档只留最近 7 天。以前纯追加不清理 ⇒ 几个月能涨到几 MB。
+        static string _statusFile = "";
+        static string _statusDay = "";
+
+        static void RotateStatusLog()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(_statusFile)) _statusFile = Cfg("statusfile", "pet-status.txt");
+                string p = _statusFile;
+                if (string.IsNullOrEmpty(p)) return;
+                if (!Path.IsPathRooted(p)) p = Path.Combine(_baseDir, p);
+                string dir = Path.GetDirectoryName(p);
+                string stem = Path.GetFileNameWithoutExtension(p);
+                string ext = Path.GetExtension(p);
+                if (dir == "" || stem == "") return;
+                Directory.CreateDirectory(dir);
+                if (File.Exists(p))
+                {
+                    DateTime w = File.GetLastWriteTime(p);
+                    if (w.Date != DateTime.Now.Date)
+                    {
+                        string dst = Path.Combine(dir, stem + "-" + w.ToString("yyyy-MM-dd") + ext);
+                        int i = 1;
+                        while (File.Exists(dst))
+                        {
+                            dst = Path.Combine(dir, stem + "-" + w.ToString("yyyy-MM-dd") + "-" + i + ext);
+                            i++;
+                        }
+                        File.Move(p, dst);
+                    }
+                }
+                // 归档只留 7 天
+                foreach (string f in Directory.GetFiles(dir, stem + "-*" + ext))
+                {
+                    try
+                    {
+                        DateTime w = File.GetLastWriteTime(f);
+                        if ((DateTime.Now.Date - w.Date).TotalDays > 7) File.Delete(f);
+                    }
+                    catch (Exception ex) { LogErr("RotateStatusLog", ex); }
+                }
+                _statusDay = DateTime.Now.ToString("yyyy-MM-dd");
+            }
+            catch (Exception ex) { LogErr("RotateStatusLog", ex); }
+        }
+
         static void Status(string s)
         {
             try { lock (_logQueue) { _logQueue.Add(DateTime.Now.ToString("HH:mm:ss.fff") + "  " + s); } }
@@ -1840,9 +2172,14 @@ namespace PetApp
                     batch = _logQueue.ToArray();
                     _logQueue.Clear();
                 }
-                File.AppendAllLines(Cfg("statusfile", "pet-status.txt"), batch);
+                // 跨天了 → 先把昨天的归档，再往新的「今天」文件里写
+                if (_statusDay != DateTime.Now.ToString("yyyy-MM-dd")) RotateStatusLog();
+                string p = _statusFile != "" ? _statusFile : Cfg("statusfile", "pet-status.txt");
+                if (string.IsNullOrEmpty(p)) return;
+                if (!Path.IsPathRooted(p)) p = Path.Combine(_baseDir, p);
+                File.AppendAllLines(p, batch);
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("FlushLog", ex); }
         }
 
         // ---------------- 角色包 ----------------
@@ -1864,7 +2201,7 @@ namespace PetApp
                     m[line.Substring(0, eq).Trim()] = line.Substring(eq + 1).Trim();
                 }
             }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("ReadCharJson", ex); }
             return m;
         }
 
@@ -1954,6 +2291,12 @@ namespace PetApp
                     }
                 }
             }
+            // ---- 日志 / 缓存的生命周期：都在启动早期处理，连 showPet=0 也走得到 ----
+            _errFile = Path.Combine(_baseDir, "pet-error.log");
+            _statusFile = Cfg("statusfile", "pet-status.txt");
+            RotateStatusLog();                 // pet-status.txt 只留今天，旧归档留 7 天
+            _volDir = Path.Combine(_baseDir, "pet-vol-cache");
+
             // ---- 总开关：设置面板「通用设置 → 桌面显示」关掉时，桌宠根本不启动 ----
             // 卡在建窗口、装钩子、开定时器之前：关掉后连一帧都不渲染，也不占全局钩子和 CPU。
             // 想再看到她：打开 PetSettings.exe → 通用设置 → 打开「在桌面显示桌宠」。
@@ -1966,6 +2309,7 @@ namespace PetApp
 
             // 角色包：charDir 指向 chars\<角色>，帧 / 台词 / 语音 / 按压音全部换成这个角色的
             ApplyCharPack();
+            CleanVolCache();                   // 源语音已不在（换角色/删素材）的音量缓存，这次就清掉
 
             string metaPath = Cfg("meta", "");
             if (string.IsNullOrEmpty(metaPath) || !File.Exists(metaPath))
@@ -1982,7 +2326,6 @@ namespace PetApp
                 else if (k == "press") _pressN = int.Parse(v);
                 else if (k == "click") _clickN = int.Parse(v);
                 else if (k == "drag") _dragN = int.Parse(v);
-                else if (k == "fps") _fps = int.Parse(v);
             }
             _frameBytes = _w * _h * 4;
             _frames = File.ReadAllBytes(Cfg("frames", ""));
@@ -1992,8 +2335,10 @@ namespace PetApp
             while (_cfg.ContainsKey("lang" + _langCount + "name")) _langCount++;
             string lf = Cfg("langfile", "");
             try { if (File.Exists(lf)) foreach (string l in File.ReadAllLines(lf)) { string[] kv = l.Split('='); if (kv.Length == 2 && kv[0].Trim() == "lang") { int v; if (int.TryParse(kv[1].Trim(), out v) && v >= 0 && v < _langCount) _lang = v; } } }
-            catch (Exception) { }
+            catch (Exception ex) { LogErr("Run", ex); }
             string hg = Cfg("holdMs", ""); if (hg != "") int.TryParse(hg, out _holdMs);
+            _hideFs = Cfg("hideFullscreen", "1") == "1";
+            Status("全屏隐藏=" + (_hideFs ? "开（前台全屏时让开）" : "关"));
             string bg = Cfg("bubbleH", ""); if (bg != "") int.TryParse(bg, out _bubbleH);
             string be = Cfg("bubbleEveryMs", ""); if (be != "") int.TryParse(be, out _bubbleEveryMs);
             string bf = Cfg("bubbleFont", ""); if (bf != "") _bubbleFont = bf;
@@ -2092,14 +2437,9 @@ namespace PetApp
             RegisterClassExW(ref wc);
 
             int x0, y0; LoadPos(out x0, out y0);
-            // 夹到屏幕内：加了气泡区之后窗口更高，老位置可能顶出屏幕上边或右边
-            {
-                int scrW = GetSystemMetrics(0), scrH = GetSystemMetrics(1);
-                if (x0 + _w > scrW) x0 = scrW - _w;
-                if (x0 < 0) x0 = 0;
-                if (y0 < _bubbleH) y0 = _bubbleH;
-                if (y0 + _h > scrH) y0 = scrH - _h;
-            }
+            // 夹到屏幕内：加了气泡区之后窗口更高，老位置可能顶出屏幕上边或右边；
+            // 还要处理「位置落在已拔掉的显示器上」（见 ClampToVisible）
+            ClampToVisible(ref x0, ref y0, true);
             // posfile 存的是**角色**的左上角；窗口把气泡区加在上方，所以窗口 Y = 角色 Y - 气泡高。
             // 这样加气泡不会让角色在屏幕上跳位置。
             int winH = _h + _bubbleH, winY = y0 - _bubbleH;
@@ -2117,6 +2457,9 @@ namespace PetApp
                 RECT rr; GetWindowRect(_hwnd, out rr);
                 Status("shown  rect=" + rr.Left + "," + rr.Top + "," + rr.Right + "," + rr.Bottom
                     + "  dpi=" + GetDpiForWindow(_hwnd));
+                // 进程是「每显示器感知」，气泡位图按 96dpi 画 ⇒ 高 DPI 屏上文字会偏小。
+                // 按实际 DPI 把字号放大回去，和系统缩放下的其它文字一样大。
+                ApplyDpiToBubble(GetDpiForWindow(_hwnd));
             }
 
             IntPtr hMod = GetModuleHandleW(null);

@@ -8,6 +8,9 @@
 - `audio/` 下的音效素材。
 - `docs/images/` 中的角色相关展示图。
 
+另外，`Fonts/` 下的 Saira Wide 字体以 SIL Open Font License 1.1 授权，
+许可证全文见 [`Fonts/OFL.txt`](Fonts/OFL.txt)，可随程序一起分发。
+
 上述角色素材的版权归原权利方所有，仅用于个人学习与自用，
 请勿用于商业用途，也不要二次分发。
 

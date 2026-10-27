@@ -384,7 +384,16 @@ a.btn { text-decoration: none; color: var(--ink); }
 .line.play { background: #F4F9FF; border-color: #9CC2F0; }
 .line .n { width: 30px; font: 11px Consolas, monospace; color: #8A93A3; flex: none; text-align: center; }
 .line .t { flex: 1; font-size: 13px; color: #212529; user-select: text; }
-.line .p { width: 30px; height: 30px; background: #F1F5FC; color: #2563AB; display: flex; align-items: center; justify-content: center; font-size: 11px; flex: none; }
+.line .p { width: 30px; height: 30px; background: #F1F5FC; color: #2563AB; display: flex; align-items: center; justify-content: center; font-size: 11px; flex: none; border: 0; cursor: pointer; }
+.line .p:hover { background: #E3EEFB; }
+.line .acts { display: flex; align-items: center; gap: 2px; flex: none; }
+.line .ib { height: 30px; min-width: 30px; padding: 0 8px; border: 0; background: transparent; color: #8A93A3; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex: none; }
+.line .ib:hover { background: #EAF1FA; color: #2563AB; }
+.line .ib.del:hover { background: var(--danger-soft); color: var(--danger); }
+.line .ib.ok { background: var(--accent-solid); color: #fff; }
+.line .ib.ok:hover { background: var(--accent-hover); color: #fff; }
+.line.editing { background: #F7FAFF; border-color: #9CC2F0; cursor: default; }
+.line-in { flex: 1; min-width: 0; height: 30px; }
 .empty { padding: 26px 0; text-align: center; color: var(--ink2); font-size: 12px; }
 
 /* 导入页 */
@@ -451,8 +460,6 @@ a.btn { text-decoration: none; color: var(--ink); }
 .crow .v { text-align: right; font-weight: 600; }
 .chex { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
 .chex .input { width: 120px; font-family: Consolas, monospace; text-transform: uppercase; }
-
-.tip { position: fixed; z-index: 80; pointer-events: none; background: #1F2329; color: #fff; font-size: 11.5px; padding: 5px 8px; white-space: pre; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }

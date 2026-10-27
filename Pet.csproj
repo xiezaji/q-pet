@@ -9,11 +9,13 @@
     <RootNamespace>PetApp</RootNamespace>
     <LangVersion>7.3</LangVersion>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <!-- 版本信息：改版本只改这里（PetSettings.csproj 里有一份同名副本，两处要一起改） -->
+    <!-- 版本信息：build.cmd 从 git tag 算出来传进来（-p:Version=...），
+         没有 git / 没有 tag 时退回 2.0.0。PetSettings.csproj 里有一份同名副本。 -->
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version Condition=" '$(Version)' == '' ">2.0.0</Version>
+    <FileVersion Condition=" '$(FileVersion)' == '' ">$(Version)</FileVersion>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <AssemblyTitle>Q Pet</AssemblyTitle>
     <Product>Q Pet</Product>
@@ -28,6 +30,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="pet.cs" />
+    <!-- 纯函数（与设置面板、Tests 共用，见 Core.cs 文件头注释） -->
+    <Compile Include="Core.cs" />
     <Compile Include="Program.cs" />
     <Reference Include="System.Drawing" />
   </ItemGroup>

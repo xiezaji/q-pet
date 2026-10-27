@@ -2,7 +2,7 @@
 import { el, svg, parseHex, pad2, idbClear } from './util.js';
 import {
   chars, VERSION, BUILD, addChar, deleteChar, ampOf, ensureImage, customAnims, setCustomAnim,
-  listFrames, addFrame, deleteFrame,
+  listFrames, addFrame, deleteFrame, saveVoices,
 } from './store.js';
 import { Sprite, canvasW, canvasH } from './frames.js';
 import { buildSkin, drawBubble, fontCss, ptToPx, FONTS, analyzeFrame } from './bubble.js';
@@ -14,6 +14,7 @@ const REPO = 'https://github.com/xiezaji/q-pet';
 const IMG_EXT = /\.(png|webp|jpe?g|gif|bmp|avif)$/i;
 const AUDIO_EXT = /\.(wav|mp3|ogg|m4a|flac|aac|opus)$/i;
 const TRASH = 'M2.2,5.4 H15.8 M6.6,5.4 V2.6 H11.4 V5.4 M4.1,5.4 L5.3,15.4 H12.7 L13.9,5.4 M7.3,8 V12.9 M10.7,8 V12.9';
+const PENCIL = 'M2.6,13.4 L3.4,10.3 L10.7,3 L13,5.3 L5.7,12.6 Z M9.5,4.2 L11.8,6.5';
 
 const card = (...kids) => el('div', { class: 'card' }, ...kids);
 const boxed = (...kids) => el('div', { class: 'card boxed' }, ...kids);
@@ -468,15 +469,74 @@ function pageVoice(S) {
     if (!voices.length) { tryMsg.textContent = '当前角色没有语音可试听'; return; }
     playAt(Math.floor(Math.random() * voices.length));
   };
+
+  let editing = -1;
+  const persist = async () => {
+    try { await saveVoices(ch.id, voices); } catch (_) { tryMsg.textContent = '保存失败：浏览器不允许写入本地存储'; }
+    S.refresh();
+  };
+  const delLine = async i => {
+    const v = voices[i];
+    if (!v) return;
+    if (!await ask({ title: '删除这条语音？', body: `「${v.text}」会从这个浏览器里删掉，原角色包不受影响。`, ok: '删除', cancel: '算了', danger: true })) return;
+    editing = -1;
+    voices.splice(i, 1);
+    await persist();
+    paintList();
+    tryMsg.textContent = `已删除，还剩 ${voices.length} 条`;
+  };
+  const addVoices = async () => {
+    const fs = (await pickFiles({ accept: 'audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac,.opus', multiple: true }))
+      .filter(f => AUDIO_EXT.test(f.name))
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh', { numeric: true }));
+    if (!fs.length) return;
+    for (const f of fs) voices.push({ text: f.name.replace(/\.[^.]+$/, ''), url: URL.createObjectURL(f), blob: f });
+    await persist();
+    paintList();
+    tryMsg.textContent = `已新增 ${fs.length} 条语音`;
+  };
+
+  const iconBtn = (cls, d, title, onclick) =>
+    el('button', { class: 'ib ' + cls, type: 'button', title, html: svg(d, 15, 1.4), onclick: e => { e.stopPropagation(); onclick(); } });
+
+  const mkLine = (v, i) => {
+    if (editing === i) {
+      const inp = el('input', { class: 'input line-in', value: v.text, maxlength: 80, 'aria-label': '台词' });
+      const commit = () => {
+        const t = inp.value.trim();
+        if (!t) { inp.focus(); return; }
+        v.text = t; editing = -1;
+        persist().then(paintList);
+      };
+      const cancel = () => { editing = -1; paintList(); };
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+        e.stopPropagation();
+      });
+      setTimeout(() => { inp.focus(); inp.select(); }, 0);
+      return el('div', { class: 'line editing', 'data-i': i },
+        el('span', { class: 'n' }, pad2(i + 1)), inp,
+        el('button', { class: 'ib ok', type: 'button', title: '保存', text: '保存', onclick: commit }),
+        el('button', { class: 'ib', type: 'button', title: '取消', text: '取消', onclick: cancel }));
+    }
+    return el('div', { class: 'line', 'data-i': i, onclick: () => playAt(i) },
+      el('span', { class: 'n' }, pad2(i + 1)),
+      el('span', { class: 't' }, v.text),
+      el('span', { class: 'acts' },
+        iconBtn('edit', PENCIL, '编辑台词', () => { editing = i; paintList(); }),
+        iconBtn('del', TRASH, '删除这条', () => delLine(i)),
+        el('button', { class: 'p', type: 'button', title: '试听', text: '▶', onclick: e => { e.stopPropagation(); playAt(i); } })));
+  };
+
   const paintList = () => {
     const kw = q.value.trim();
     const hits = voices.map((v, i) => [v, i]).filter(([v]) => !kw || v.text.includes(kw));
     count.textContent = kw ? `匹配 ${hits.length} / ${voices.length} 条` : `共 ${voices.length} 条`;
     list.style.height = clamp(hits.length * 46 + 10, 150, 260) + 'px';
-    if (!voices.length) { list.replaceChildren(el('div', { class: 'empty' }, '当前角色还没有语音（建角色时带上语音文件夹即可）')); return; }
+    if (!voices.length) { list.replaceChildren(el('div', { class: 'empty' }, '当前角色还没有语音。点「新增语音」加一条，或在「导入」里建角色时带上语音文件夹。')); return; }
     if (!hits.length) { list.replaceChildren(el('div', { class: 'empty' }, '没有匹配的台词')); return; }
-    list.replaceChildren(...hits.map(([v, i]) => el('div', { class: 'line', 'data-i': i, onclick: () => playAt(i) },
-      el('span', { class: 'n' }, pad2(i + 1)), el('span', { class: 't' }, v.text), el('span', { class: 'p' }, '▶'))));
+    list.replaceChildren(...hits.map(([v, i]) => mkLine(v, i)));
   };
   q.addEventListener('input', paintList);
   paintList();
@@ -495,8 +555,9 @@ function pageVoice(S) {
         el('div', { class: 'row' }, el('div', { class: 'lbl' }, tryMsg), el('div', { class: 'ctl' }, button('试听', 'secondary sm', playRandom)))),
       card(
         el('div', { class: 'row' }, el('div', { class: 'lbl' }, el('div', { class: 'h2 s' }, '台词库'), count),
-          el('div', { class: 'ctl' }, q, button('随机来一句', 'secondary sm', playRandom))),
-        list),
+          el('div', { class: 'ctl' }, q, button('随机来一句', 'secondary sm', playRandom), button('新增语音', 'primary sm', addVoices))),
+        list,
+        el('div', { class: 'note', style: { marginTop: '10px' } }, '编辑、删除、新增都只改这个浏览器里的副本，原角色包不动')),
     ],
     dispose() { timers.forEach(clearTimeout); },
   };
@@ -606,7 +667,7 @@ function pageAbout() {
       card(
         el('div', { class: 'row', style: { padding: 0 } }, head('数据位置', '全部存在这个浏览器里，换浏览器或清缓存就没了'),
           el('div', { class: 'ctl' }, button('清除全部数据', 'danger sm', wipe))),
-        kv([['设置', 'localStorage · qpet.cfg.v1'], ['位置', 'localStorage · qpet.pos.v1'], ['统计', 'localStorage · qpet.stats.日期'], ['角色 / 动画 / 外框', 'IndexedDB · qpet']])),
+        kv([['设置', 'localStorage · qpet.cfg.v1'], ['位置', 'localStorage · qpet.pos.v1'], ['统计', 'localStorage · qpet.stats.日期'], ['角色 / 动画 / 外框 / 台词', 'IndexedDB · qpet']])),
       card(head('链接'), el('div', { class: 'links' },
         link('GitHub 仓库', REPO), link('下载桌面版', REPO + '/releases'), link('查看许可证', REPO + '/blob/main/LICENSE'))),
       card(head('关于本程序'),

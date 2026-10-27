@@ -56,6 +56,21 @@ foreach ($f in @('LICENSE', 'README.md')) {
     if (Test-Path (Join-Path $here $f)) { Copy-Item (Join-Path $here $f) (Join-Path $stage $f) -Force }
 }
 
+# 包里的角色必须和配置一致：-Char 指定别的角色时改写 charDir，
+# 否则只带小维、配置却指向阿米娅，对方解压后打不开。
+$cfgChar = 'chars\' + $charName
+foreach ($cfgName in @('pet-config.txt', 'pet-overrides.txt')) {
+    $cfgPath = Join-Path $stage $cfgName
+    if (-not (Test-Path $cfgPath)) { continue }
+    $lines = @(Get-Content $cfgPath -Encoding utf8)
+    $found = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -like 'charDir=*') { $lines[$i] = 'charDir=' + $cfgChar; $found = $true }
+    }
+    if (-not $found) { $lines += 'charDir=' + $cfgChar }
+    [System.IO.File]::WriteAllLines($cfgPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 # 角色：默认只带当前角色；-AllChars 带全部
 New-Item -ItemType Directory -Path (Join-Path $stage 'chars') -Force | Out-Null
 if ($AllChars) {

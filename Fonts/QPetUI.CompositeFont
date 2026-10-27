@@ -1,0 +1,26 @@
+<!--
+  Q Pet 的界面复合字体（WPF CompositeFont）。
+
+  为什么需要它：Saira Wide 只有拉丁和数字，没有汉字。只写 FontFamily="Saira Wide" 时，
+  汉字走的是 WPF 的「全局回退」，不同字重会落到不同字体上 —— 实测面板里粗体汉字是雅黑、
+  下拉框里的常规汉字却是宋体，看起来像两套字体。
+
+  这张映射表把范围写死：
+    · 拉丁 / 数字 / 标点 → Saira Wide（打进 exe 的那支，保留工业感）
+    · 汉字与全角标点     → Microsoft YaHei UI（系统自带）
+  这样整个程序只有一套字形，且不吃系统语言设置的影响。
+-->
+<FontFamily xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+  <FontFamily.FamilyNames>
+    <String x:Key="en-US">QPet UI</String>
+  </FontFamily.FamilyNames>
+  <FontFamily.FamilyMaps>
+    <FontFamilyMap Unicode="0000-2FFF" Target="pack://application:,,,/Fonts/#Saira Wide" Scale="1.0" />
+    <FontFamilyMap Unicode="3000-303F" Target="Microsoft YaHei UI" Scale="1.0" />
+    <FontFamilyMap Unicode="3040-9FFF" Target="Microsoft YaHei UI" Scale="1.0" />
+    <FontFamilyMap Unicode="F900-FAFF" Target="Microsoft YaHei UI" Scale="1.0" />
+    <FontFamilyMap Unicode="FE30-FE4F" Target="Microsoft YaHei UI" Scale="1.0" />
+    <FontFamilyMap Unicode="FF00-FFEF" Target="Microsoft YaHei UI" Scale="1.0" />
+    <FontFamilyMap Unicode="E000-F8FF" Target="Segoe MDL2 Assets" Scale="1.0" />
+  </FontFamily.FamilyMaps>
+</FontFamily>

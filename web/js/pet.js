@@ -1,5 +1,5 @@
 // 桌宠本体：状态机、拖动、气泡、点击台词。逻辑照搬 pet.cs。
-import { Sprite, canvasW, canvasH } from './frames.js';
+import { Sprite } from './frames.js';
 import { buildSkin, drawBubble, fontCss, ptToPx, analyzeFrame } from './bubble.js';
 import * as audio from './audio.js';
 import { chars, ensureImage, heightOf, ampOf, customAnims, getFrame, loadPos, savePos, emit, on } from './store.js';

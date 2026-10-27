@@ -24,7 +24,13 @@ public static class PetMain
         bool created = false;
         using (Mutex m = new Mutex(true, "Local\\PetDesktop", out created))
         {
-            if (!created) return;
+            if (!created)
+            {
+                // 以前直接 return ⇒ 用户双击两次毫无反应，还查不到原因。
+                // 现在：请已运行的那个实例把设置面板打开，并在 pet-status.txt 里留一条。
+                PetApp.Pet.NotifyExistingInstance(dir);
+                return;
+            }
             try { File.WriteAllText(Path.Combine(dir, "pet.pid"), System.Diagnostics.Process.GetCurrentProcess().Id.ToString()); }
             catch (Exception) { }
             try { PetApp.Pet.Run(cfg); }

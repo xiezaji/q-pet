@@ -22,9 +22,11 @@ Set-Location $here
 function Fail($msg) { Write-Host "✗ $msg" -ForegroundColor Red; exit 1 }
 
 # ---------- 1. 源码文件检查 ----------
-$src = @('pet.cs', 'Program.cs', 'Settings.cs', 'Pet.csproj', 'PetSettings.csproj', 'build.cmd',
+$src = @('pet.cs', 'Program.cs', 'Core.cs', 'Settings.cs', 'Ui.cs', 'Bubble.cs', 'Voice.cs',
+         'PageAnim.cs', 'PageImport.cs', 'PageStats.cs', 'PageAbout.cs', 'CharMap.cs', 'KeyStats.cs',
+         'AppTreemap.cs', 'Pet.csproj', 'PetSettings.csproj', 'Tests.csproj', 'build.cmd',
          'pet.ico', 'pet.png', 'LICENSE', 'NOTICE.md', 'README.md', 'make-pet-config.ps1',
-         'pet-config.txt', 'pet-overrides.txt')
+         'pet-config.txt', 'pet-overrides.txt', 'start-pet.cmd', 'start-pet.vbs', 'run-pet-settings.cmd')
 foreach ($f in $src) { if (-not (Test-Path (Join-Path $here $f))) { Fail "缺少 $f" } }
 
 # ---------- 2. 当前角色 ----------
@@ -47,6 +49,25 @@ if ([System.IO.Directory]::Exists($stage)) { [System.IO.Directory]::Delete($stag
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 foreach ($f in $src) { Copy-Item (Join-Path $here $f) (Join-Path $stage $f) -Force }
+
+# 包里的角色必须和配置一致：-Char 指定别的角色时改写 charDir
+$cfgChar = 'chars\' + $charName
+foreach ($cfgName in @('pet-config.txt', 'pet-overrides.txt')) {
+    $cfgPath = Join-Path $stage $cfgName
+    if (-not (Test-Path $cfgPath)) { continue }
+    $lines = @(Get-Content $cfgPath -Encoding utf8)
+    $found = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -like 'charDir=*') { $lines[$i] = 'charDir=' + $cfgChar; $found = $true }
+    }
+    if (-not $found) { $lines += 'charDir=' + $cfgChar }
+    [System.IO.File]::WriteAllLines($cfgPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+# 单测、内置字体、XAML 校验脚本
+foreach ($d in @('tests', 'Fonts')) { Copy-Item (Join-Path $here $d) (Join-Path $stage $d) -Recurse -Force }
+New-Item -ItemType Directory -Path (Join-Path $stage '_ref') -Force | Out-Null
+Copy-Item (Join-Path $here '_ref\xamlgen.py') (Join-Path $stage '_ref\xamlgen.py') -Force
 
 # 角色：默认只带当前角色
 New-Item -ItemType Directory -Path (Join-Path $stage 'chars') -Force | Out-Null

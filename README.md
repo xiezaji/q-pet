@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <img alt="版本 2.0.0" src="https://img.shields.io/badge/version-2.0.0-6E56CF">
   <img alt="Windows 10 / 11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white">
   <img alt=".NET Framework 4.8" src="https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?logo=dotnet&logoColor=white">
   <img alt="免安装" src="https://img.shields.io/badge/%E5%85%8D%E5%AE%89%E8%A3%85-%E8%A7%A3%E5%8E%8B%E5%8D%B3%E7%94%A8-2ea44f">
@@ -47,7 +48,7 @@ Q Pet 是一款桌面宠物：透明置顶、点击穿透、四类动画、语�
 
 - 透明、置顶、不抢焦点，透明区域点击穿透，不占任务栏。
 - 待机、按键、点击、拖动四类动画，可单独开关、调速。
-- 点击角色随机显示台词并播放语音；按压、松开音效可单独配置。
+- 点击角色随机显示台词并播放语音；台词可编辑、删除单条、导入新语音，文案与音频都只改本地副本。
 - 拖动改变位置，下次启动回到原处。
 - 气泡支持四种外框、颜色、字体、字号，长文本可滚动。
 - 托盘菜单、双击打开设置、开机自启。
@@ -71,7 +72,7 @@ Windows 11 Fluent 风格设置面板，修改后即时生效。点击图片查�
 | 四种外框，支持自定义颜色、字体与字号 | 四类动画独立开关，幅度与倍速可调 |
 | **语音台词** | **使用统计** |
 | <a href="docs/images/settings-voice.png"><img src="docs/images/settings-voice.png" width="400" alt="语音设置"></a> | <a href="docs/images/settings-stats.png"><img src="docs/images/settings-stats.png" width="400" alt="使用统计"></a> |
-| 台词与语音一一对应，可试听 | 记录仅保存在本机 |
+| 台词与语音一一对应，可试听、编辑、删除、导入 | 记录仅保存在本机 |
 
 ## 角色包
 
@@ -161,8 +162,11 @@ python anim_custom.py reset --pack "chars/小维" --slot click
 |---|---|
 | 双击后没反应，或提示找不到 exe | 确认 ZIP 已完整解压，`Pet.exe`、`pet-config.txt`、`chars\` 在同一目录 |
 | SmartScreen 拦截 | 「更多信息 → 仍要运行」 |
-| 桌宠没有出现 | 查看同目录 `pet-crash.log` 与 `pet-status.txt`；确认系统已启用 .NET Framework 4.8 |
-| 重复双击开启了多只 | 不会。程序使用单实例互斥体，已有实例时再次启动会直接退出 |
+| 桌宠没有出现 | 设置面板「关于」页会直接显示上次崩溃；也可看同目录 `pet-crash.log` / `pet-error.log` / `pet-status.txt` |
+| 重复双击开启了多只 | 不会。程序用单实例互斥体；已有实例时会把它的设置面板叫出来，并在 `pet-status.txt` 里留一行 |
+| 日志越来越多 | 不会。`pet-status.txt` 只留当天，跨天自动归档成 `pet-status-YYYY-MM-DD.txt`，归档只保留最近 7 天 |
+| 桌宠跑到屏幕外 | 拔显示器 / 改分辨率后会自动夹回可视区；也可以删掉 `pet-pos.txt` 让它回默认位置 |
+| 想把统计拿走 | 设置面板「统计」页的「导出 CSV」，可导出当天或某一天的软件 / 按键 / 角色时长 |
 | 想换电脑继续用 | 复制整个文件夹即可；`pet-pos.txt`、`pet-stats*.txt` 等运行记录可留可删 |
 | 不想使用预编译 exe | 参考下方「构建」，从源码自行编译 |
 </details>
@@ -254,11 +258,16 @@ q-pet/
 ├─ Pet.exe / PetSettings.exe  预编译程序（Windows 10/11 x64）
 ├─ pet.cs / Program.cs        桌宠本体
 ├─ Pet.csproj                 桌宠构建配置
-├─ Settings.cs                设置中心
+├─ Settings.cs                设置中心（流程与配置）
+├─ Ui.cs / Bubble.cs / Voice.cs / Page*.cs  设置中心各页与主题、气泡、语音
+├─ Core.cs / KeyStats.cs / CharMap.cs / AppTreemap.cs  与测试共用的纯函数
 ├─ PetSettings.csproj         设置中心构建配置
+├─ tests/                     纯函数单测（build.cmd 自动运行）
+├─ Fonts/                     设置界面内置的 Saira Wide（SIL OFL 1.1）
 ├─ chars/                     角色包
 ├─ docs/images/               README 展示图
 ├─ audio/                     音效素材与 audio.json 索引
+├─ web/                       网页版（原生 JS + Canvas，独立部署到 Pages）
 ├─ charpack.py                角色包管理
 ├─ sprites.py                 动画帧生成
 ├─ anim_custom.py             自定义动画

@@ -1,4 +1,4 @@
-# 生成桌宠配置（key=value，C# 侧直接读；改完重跑本脚本即可）
+﻿# 生成桌宠配置（key=value，C# 侧直接读；改完重跑本脚本即可）
 # 值来源优先级：pet-overrides.txt（设置面板写的） > 角色包 char.json > 这里的默认值
 $ErrorActionPreference = 'Continue'
 $PSNativeCommandUseErrorActionPreference = $false
@@ -150,6 +150,8 @@ $lines.Add('sfxGroup=' + $sfxGroup)
 $lines.Add('clickLineMode=' + (Ov 'clickLineMode' 'random'))
 # 桌面显示总开关（设置面板「通用设置 → 桌面显示」）：0 = 桌宠不启动
 $lines.Add('showPet=' + (Ov 'showPet' '1'))
+# 全屏隐藏（设置面板「通用设置 → 全屏隐藏」）：1 = 前台全屏时自动让开
+$lines.Add('hideFullscreen=' + (Ov 'hideFullscreen' '1'))
 # 文字颜色
 $lines.Add('bubbleInk=' + (Ov 'bubbleInk' 'auto'))
 

@@ -1,6 +1,6 @@
 # Q Pet 配置 —— 由 make-pet-config.ps1 生成（值来自 pet-overrides.txt + 角色包）
 # 全部是相对路径：整个文件夹可以拷到任意机器 / 任意目录运行
-charDir=chars\小维
+charDir=chars\阿米娅
 frames=chars\小维\动画\frames.bin
 meta=chars\小维\动画\frames.txt
 posfile=pet-pos.txt
@@ -12,14 +12,14 @@ clickLine=1
 icopath=pet.png
 holdMs=110
 clickVoice=1
-bubbleH=79
+bubbleH=92
 bubbleEveryMs=300000
 bubbleFont=FangSong
 bubbleStyle=comic
 bubbleFrame=
-bubbleColor=8FA6D8
+bubbleColor=3F4A5A
 bubbleFontSize=10.5
-themeColor=005FB8
+themeColor=3F4A5A
 statsfile=pet-stats.txt
 statsKeys=1
 volume=20
@@ -39,4 +39,5 @@ soundSet=furina
 sfxGroup=auto
 clickLineMode=random
 showPet=1
+hideFullscreen=1
 bubbleInk=1A1A1A

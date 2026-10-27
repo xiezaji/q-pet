@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <!-- 设置面板：net48 / WPF（XAML 在代码里，无需 markup compile）。
        编译：dotnet build PetSettings.csproj -c Release
        产物：build\settings\PetSettings.exe（再复制到根目录） -->
@@ -9,11 +9,13 @@
     <RootNamespace>PetSettings</RootNamespace>
     <LangVersion>7.3</LangVersion>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <!-- 版本信息：与 Pet.csproj 保持同一组数值 -->
+    <!-- 版本信息：build.cmd 从 git tag 算出来传进来（-p:Version=...），
+         没有 git / 没有 tag 时退回 2.0.0。与 Pet.csproj 用同一组数值。 -->
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version Condition=" '$(Version)' == '' ">2.0.0</Version>
+    <FileVersion Condition=" '$(FileVersion)' == '' ">$(Version)</FileVersion>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <AssemblyTitle>Q Pet 设置</AssemblyTitle>
     <Product>Q Pet</Product>
@@ -28,11 +30,36 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Settings.cs" />
+    <!-- 纯函数（与 Pet.exe、Tests 共用，见 Core.cs 文件头注释） -->
+    <Compile Include="Core.cs" />
+    <Compile Include="KeyStats.cs" />
+    <Compile Include="AppTreemap.cs" />
+    <Compile Include="CharMap.cs" />
+    <!-- 从 Settings.cs 拆出来的 partial 部分（2026-10-27）：主文件负责流程与配置，
+         各页与主题/气泡/语音各自一个文件。顺序保持 Settings.cs 在前。 -->
+    <Compile Include="Ui.cs" />
+    <Compile Include="Bubble.cs" />
+    <Compile Include="Voice.cs" />
+    <Compile Include="PageAnim.cs" />
+    <Compile Include="PageImport.cs" />
+    <Compile Include="PageStats.cs" />
+    <Compile Include="PageAbout.cs" />
     <Reference Include="System.Xaml" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="WindowsBase" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 界面用的宽体几何英文字（Saira，SIL OFL 1.1，宽度轴切到 125%）。
+         作为 Resource 打进 exe，XAML 里用 pack://application:,,,/Fonts/#Saira Wide 引用；
+         不能指望系统字体——系统里没有宽体几何字，会退回普通字体，这个风格的辨识度就没了。 -->
+    <Resource Include="Fonts\SairaWide-Medium.ttf" />
+    <Resource Include="Fonts\SairaWide-SemiBold.ttf" />
+    <Resource Include="Fonts\SairaWide-Bold.ttf" />
+    <Resource Include="Fonts\SairaWide-ExtraBold.ttf" />
+    <!-- 复合字体：拉丁用 Saira Wide、汉字用雅黑，见文件内注释 -->
+    <Resource Include="Fonts\QPetUI.CompositeFont" />
   </ItemGroup>
   <ItemGroup>
     <!-- 同 Pet.csproj：没装 .NET Framework 4.8 开发包也能 dotnet build -->
