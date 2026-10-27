@@ -1,346 +1,220 @@
-/* ==========================================================================
-   bubble.js —— 对话气泡
-   移植自桌面端 pet.cs 的 BuildBubbleSkin / DrawBubbleInto：
-     · 四种皮肤：card（渐变圆角）/ classic（椭圆漫画）/ comic（白底粗边）/ custom（九宫格外框）
-     · 出现 170ms 缓动放大 + 淡入，消失前 240ms 淡出
-     · 文字装不下时可**手动滚动**（滚轮/拖动），配一条极细滚动条
-   ========================================================================== */
-(function (global) {
-  'use strict';
+// 气泡：照搬桌面版 BuildBubbleSkin / DrawBubbleInto 的几何与配色
+import { lighten, darken, inkFor, rgba } from './util.js';
 
-  /* ---------- 颜色工具 ---------- */
-  function hexToRgb(hex) {
-    const h = (hex || '#8FA6D8').replace('#', '');
-    const s = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
-    return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
-  }
-  function rgbToHex(r, g, b) {
-    const c = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
-    return '#' + c(r) + c(g) + c(b);
-  }
-  function darken(hex, amt) {
-    const [r, g, b] = hexToRgb(hex);
-    return rgbToHex(r * (1 - amt), g * (1 - amt), b * (1 - amt));
-  }
-  function lighten(hex, amt) {
-    const [r, g, b] = hexToRgb(hex);
-    return rgbToHex(r + (255 - r) * amt, g + (255 - g) * amt, b + (255 - b) * amt);
-  }
-  /** 按底色亮度自动选深/浅文字（复刻桌面端 InkFor） */
-  function inkFor(hex) {
-    const [r, g, b] = hexToRgb(hex);
-    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    return lum > 0.62 ? '#1A1A1A' : '#FFFFFF';
-  }
+const SHADOW = [0x2A, 0x3A, 0x66];
 
-  /* ---------- 路径：圆角矩形 + 尾巴（复刻 BubblePath） ---------- */
-  function bubblePath(ctx, l, t, r, b, rad, tailL, tailR, tipX, tipY) {
-    const d = rad * 2;
-    ctx.beginPath();
-    ctx.arc(l, t, d / 2, Math.PI, Math.PI * 1.5);          // 左上
-    ctx.arc(r - d, t, d / 2, Math.PI * 1.5, Math.PI * 2);  // 右上
-    ctx.arc(r - d, b - d, d / 2, 0, Math.PI * 0.5);        // 右下
-    ctx.lineTo(tailR, b);
-    ctx.lineTo(tipX, tipY);
-    ctx.lineTo(tailL, b);
-    ctx.arc(l, b - d, d / 2, Math.PI * 0.5, Math.PI);      // 左下
-    ctx.closePath();
+function bubblePath(g, l, t, r, b, rad, tailL, tailR, tipX, tipY) {
+  rad = Math.max(0.5, Math.min(rad, (r - l) / 2, (b - t) / 2));
+  g.beginPath();
+  g.arc(l + rad, t + rad, rad, Math.PI, Math.PI * 1.5);
+  g.arc(r - rad, t + rad, rad, Math.PI * 1.5, Math.PI * 2);
+  g.arc(r - rad, b - rad, rad, 0, Math.PI * 0.5);
+  g.lineTo(tailR, b);
+  g.lineTo(tipX, tipY);
+  g.lineTo(tailL, b);
+  g.arc(l + rad, b - rad, rad, Math.PI * 0.5, Math.PI);
+  g.closePath();
+}
+
+function roundRect(g, l, t, r, b, rad) {
+  g.beginPath();
+  g.roundRect(l, t, Math.max(1, r - l), Math.max(1, b - t), Math.min(rad, (r - l) / 2, (b - t) / 2));
+}
+
+function nineSlice(g, img, x0, y0, w, h, insX, insY) {
+  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
+  const scale = Math.min(w / W, h / H);
+  const cw = Math.max(1, Math.round(Math.min(insX * W * scale, w * 0.5 - 1)));
+  const ch = Math.max(1, Math.round(Math.min(insY * H * scale, h * 0.5 - 1)));
+  const scw = Math.max(1, Math.round(insX * W)), sch = Math.max(1, Math.round(insY * H));
+  const dxs = [x0, x0 + cw, x0 + w - cw, x0 + w], dys = [y0, y0 + ch, y0 + h - ch, y0 + h];
+  const sxs = [0, scw, W - scw, W], sys = [0, sch, H - sch, H];
+  for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) {
+    const dw = dxs[i + 1] - dxs[i], dh = dys[j + 1] - dys[j], sw = sxs[i + 1] - sxs[i], sh = sys[j + 1] - sys[j];
+    if (dw > 0 && dh > 0 && sw > 0 && sh > 0) g.drawImage(img, sxs[i], sys[j], sw, sh, dxs[i], dys[j], dw, dh);
   }
+}
 
-  class Bubble {
-    constructor(canvas) {
-      this.canvas = canvas;
-      this.ctx = canvas ? canvas.getContext('2d') : null;
-      this.text = '';
-      this.shownAt = 0;
-      this.until = 0;
-      this.scroll = 0;
-      this.scrollMax = 0;
-      this.hover = false;
+// 自定义外框：取中间 40% 区域看透明度与亮度，决定字色和要不要垫底
+export function analyzeFrame(img) {
+  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0);
+  const x0 = Math.floor(W * 3 / 10), x1 = Math.floor(W * 7 / 10), y0 = Math.floor(H * 3 / 10), y1 = Math.floor(H * 7 / 10);
+  const d = g.getImageData(0, 0, W, H).data;
+  let L = 0, A = 0, n = 0;
+  for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) {
+    const p = (y * W + x) * 4, a = d[p + 3] / 255;
+    L += (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]) * a; A += a; n++;
+  }
+  const centerAlpha = n === 0 ? 255 : Math.round(A / n * 255);
+  const avgL = A < 0.5 ? 255 : L / A;
+  return { centerAlpha, ink: avgL > 132 ? [0x1A, 0x1A, 0x1A] : [0xF7, 0xF9, 0xFF] };
+}
 
-      // 样式（可被设置页改）
-      this.style = 'card';
-      this.accent = '#8FA6D8';
-      this.ink = null;
-      this.fontFamily = '"Microsoft YaHei", "PingFang SC", sans-serif';
-      this.fontSize = 13;         // pt → px 换算在 setFontSize 里做
-      this.lineHeight = 1.42;
-      this.needScroll = false;
-      this.textRect = { x: 0, y: 0, w: 0, h: 0 };
-      this.measureCanvas = document.createElement('canvas');
-      this.measureCtx = this.measureCanvas.getContext('2d');
-      this._skin = null;
-      this._skinKey = '';
+// 外框只在尺寸 / 样式 / 颜色变化时画一次
+export function buildSkin({ w, bh, style, accent, frameImg, frameInfo, inkFix, k = 1 }) {
+  if (style === 'custom' && !frameImg) style = 'card';
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(bh * k));
+  const g = c.getContext('2d');
+  g.scale(k, k);
+  g.imageSmoothingQuality = 'high';
+
+  const sw = Math.max(1.4, w * 4.6 / 1026);
+  const pad = Math.max(9, w * 0.052);
+  const tailH = Math.min(15, bh * 0.15);
+  const bodyL = sw + 1.5, bodyR = w - sw - 1.5, bodyT = sw + 1.5, bodyB = bh - tailH - sw - 1.5;
+  const radius = Math.max(8, Math.min(15, (bodyB - bodyT) * 0.32));
+  const cx = (bodyL + bodyR) / 2;
+  const tipY = bodyB + tailH, tailL = cx - 15, tailR = cx + 7, tipX = cx - 5;
+  let ink = inkFor(accent);
+  let tr = { x: bodyL + pad, y: bodyT + pad * 0.72, w: Math.max(20, bodyR - bodyL - pad * 2), h: Math.max(16, bodyB - bodyT - pad * 1.45) };
+  const path = (rad) => bubblePath(g, bodyL, bodyT, bodyR, bodyB, rad, tailL, tailR, tipX, tipY);
+
+  if (style === 'custom') {
+    nineSlice(g, frameImg, 0, 0, Math.round(w), Math.round(bh), 0.26, 0.30);
+    const insX = pad * 1.15, insT = pad * 0.95, insB = Math.max(pad * 1.2, bh * 0.16);
+    tr = { x: insX, y: insT, w: Math.max(20, w - insX * 2), h: Math.max(16, bh - insT - insB) };
+    if (frameInfo && frameInfo.centerAlpha < 110) {
+      g.fillStyle = 'rgba(255,255,255,0.62)';
+      roundRect(g, tr.x - 5, tr.y - 5, tr.x + tr.w + 5, tr.y + tr.h + 5, 10);
+      g.fill();
     }
-
-    setFontSize(pt) {
-      // 桌面端字号单位是 pt（1pt = 1.333px @96dpi）
-      this.fontSize = pt * 4 / 3;
-      this._skin = null;
+    ink = frameInfo ? frameInfo.ink : [0x1A, 0x1A, 0x1A];
+  } else if (style === 'classic') {
+    const rx = (bodyR - bodyL) / 2, ry = (bodyB - bodyT) / 2, ecy = (bodyT + bodyB) / 2;
+    const csw = Math.max(2.4, sw * 2.1);
+    const r1 = w * 0.048, x1 = cx - rx * 0.74, y1 = bh - r1 * 1.25;
+    const r2 = w * 0.031, x2 = cx - rx * 0.33, y2 = bh - r2 * 0.85;
+    const ell = (x, y, ex, ey) => { g.beginPath(); g.ellipse(x, y, ex, ey, 0, 0, Math.PI * 2); };
+    const shapes = [[cx, ecy, rx, ry], [x1, y1, r1, r1 * 0.7], [x2, y2, r2, r2 * 0.7]];
+    g.fillStyle = rgba(darken(accent, 0.45), 22 / 255);
+    for (const [x, y, ex, ey] of shapes) { ell(x, y + 2 + (ex === rx ? 1 : 0), ex, ey); g.fill(); }
+    g.lineWidth = csw;
+    g.strokeStyle = rgba(darken(accent, 0.30));
+    for (const [x, y, ex, ey] of shapes) { ell(x, y, ex, ey); g.fillStyle = '#fff'; g.fill(); g.stroke(); }
+    ink = darken(accent, 0.55);
+    tr = { x: cx - rx * 0.80, y: ecy - ry * 0.74, w: rx * 1.60, h: ry * 1.48 };
+  } else if (style === 'comic') {
+    path(4);
+    g.save(); g.translate(5, 5); g.fillStyle = rgba(darken(accent, 0.62), 40 / 255); g.fill(); g.restore();
+    g.fillStyle = '#fff'; g.fill();
+    g.lineWidth = Math.max(2.4, sw * 1.7); g.strokeStyle = rgba(darken(accent, 0.55)); g.stroke();
+    ink = darken(accent, 0.78);
+  } else if (style === 'glass') {
+    path(radius);
+    g.fillStyle = rgba(SHADOW, 20 / 255);
+    for (const d of [3, 6, 9]) { g.save(); g.translate(0, d); g.fill(); g.restore(); }
+    const lg = g.createLinearGradient(0, bodyT, 0, tipY);
+    lg.addColorStop(0, 'rgba(255,255,255,' + 236 / 255 + ')');
+    lg.addColorStop(1, rgba(lighten(accent, 0.55), 196 / 255));
+    g.fillStyle = lg; g.fill();
+    g.lineWidth = Math.max(1.6, sw * 1.35); g.strokeStyle = 'rgba(255,255,255,' + 238 / 255 + ')'; g.stroke();
+    const inset = radius + 5;
+    if (bodyR - bodyL > inset * 2) {
+      g.beginPath(); g.moveTo(bodyL + inset, bodyT + sw * 1.3); g.lineTo(bodyR - inset, bodyT + sw * 1.3);
+      g.lineWidth = Math.max(1, sw * 0.8); g.strokeStyle = 'rgba(255,255,255,' + 150 / 255 + ')'; g.stroke();
     }
-
-    show(text, now, duration) {
-      this.text = text || '';
-      this.shownAt = now;
-      this.until = now + (duration || 5200);
-      this.scroll = 0;
-      this._skin = null;
+    ink = darken(accent, 0.72);
+  } else {
+    path(radius);
+    g.save(); g.translate(0, 2.5); g.fillStyle = rgba(SHADOW, 24 / 255); g.fill(); g.restore();
+    g.save(); g.translate(0, 5); g.fillStyle = rgba(SHADOW, 15 / 255); g.fill(); g.restore();
+    const lg = g.createLinearGradient(0, bodyT, 0, tipY);
+    lg.addColorStop(0, '#fff');
+    lg.addColorStop(1, rgba(lighten(accent, 0.78)));
+    g.fillStyle = lg; g.fill();
+    g.lineWidth = sw; g.strokeStyle = rgba(accent, 215 / 255); g.stroke();
+    const inset = radius + 4;
+    if (bodyR - bodyL > inset * 2) {
+      g.beginPath(); g.moveTo(bodyL + inset, bodyT + sw * 1.2); g.lineTo(bodyR - inset, bodyT + sw * 1.2);
+      g.lineWidth = Math.max(1, sw * 0.7); g.strokeStyle = 'rgba(255,255,255,' + 130 / 255 + ')'; g.stroke();
     }
+  }
+  if (inkFix) ink = inkFix;
+  return { canvas: c, tr, ink, w, bh };
+}
 
-    hide() { this.until = 0; }
+// 字体：点数按 96 DPI 折算成像素，与桌面版同大
+export const FONTS = ['YouYuan', 'Noto Sans SC Medium', 'Noto Sans SC', 'DengXian', 'Microsoft YaHei UI', 'KaiTi', 'SimHei', 'FangSong'];
+const FALLBACK = '"Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif';
+export function fontCss(name, px) {
+  const fam = {
+    YouYuan: '"YouYuan", "幼圆"', 'Noto Sans SC Medium': '"Noto Sans SC Medium", "Noto Sans SC"',
+    'Noto Sans SC': '"Noto Sans SC"', DengXian: '"DengXian", "等线"', 'Microsoft YaHei UI': '"Microsoft YaHei UI"',
+    KaiTi: '"KaiTi", "楷体", "STKaiti"', SimHei: '"SimHei", "黑体"', FangSong: '"FangSong", "仿宋", "STFangsong"',
+  }[name] || `"${name}"`;
+  const wt = name === 'Noto Sans SC Medium' ? '500 ' : '';
+  return `${wt}${px}px ${fam}, ${FALLBACK}`;
+}
+export const ptToPx = pt => pt * 96 / 72;
 
-    get visible() { return this.text !== '' && Date.now() < this.until; }
-
-    /** 滚轮/拖动滚动（仅在文字装不下时生效） */
-    scrollBy(delta) {
-      if (!this.needScroll) return;
-      this.scroll = Math.max(0, Math.min(this.scrollMax, this.scroll + delta));
-    }
-
-    /** 画到 ctx（ctx 已被平移到气泡区原点） */
-    draw(ctx, w, h, now) {
-      if (!this.visible) { this.needScroll = false; return; }
-
-      const appear = Math.min(1, (now - this.shownAt) / 170);
-      const left = this.until - now;
-      const fadeOut = left < 240 ? Math.max(0, left / 240) : 1;
-      const alpha = Math.min(1, appear * 1.6) * fadeOut;
-      if (alpha <= 0.02) { this.needScroll = false; return; }
-      const ease = 1 - (1 - appear) * (1 - appear);
-      const scale = 0.94 + 0.06 * ease;
-
-      const skin = this._buildSkin(w, h);
-      if (!skin) return;
-
-      // 以尾巴尖为轴做弹出缩放（复刻桌面端）
-      const cx = w / 2, axisY = h;
-      ctx.save();
-      ctx.translate(cx, axisY);
-      ctx.scale(scale, scale);
-      ctx.translate(-cx, -axisY);
-      ctx.globalAlpha = alpha;
-      ctx.drawImage(skin, 0, 0, w, h);
-      ctx.restore();
-
-      // 文字
-      const ink = this.ink || inkFor(this.accent);
-      const font = this.fontSize + 'px ' + this.fontFamily;
-      this.measureCtx.font = font;
-      const innerW = this.textRect.w;
-      const lines = this._wrap(this.measureCtx, this.text, innerW);
-      const lh = this.fontSize * this.lineHeight;
-      const total = lines.length * lh + 6;
-
-      if (total > this.textRect.h) {
-        this.needScroll = true;
-        this.scrollMax = Math.max(0, total - this.textRect.h + 8);
-        this.scroll = Math.max(0, Math.min(this.scroll, this.scrollMax));
-      } else {
-        this.needScroll = false;
-        this.scroll = 0;
-      }
-
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.font = font;
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = ink;
-      if (this.needScroll) {
-        // 裁剪到气泡内再画，实现滚动
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(this.textRect.x, this.textRect.y - 1, innerW, this.textRect.h + 2);
-        ctx.clip();
-        const y0 = this.textRect.y - this.scroll;
-        for (let i = 0; i < lines.length; i++) {
-          ctx.fillText(lines[i], this.textRect.x, y0 + i * lh);
-        }
-        ctx.restore();
-
-        // 右侧极细滚动条：让用户知道「还有内容、现在读到哪」
-        const trackX = this.textRect.x + innerW - 2.5;
-        const trackY = this.textRect.y;
-        const trackH = this.textRect.h;
-        ctx.fillStyle = 'rgba(0,0,0,.10)';
-        ctx.fillRect(trackX, trackY, 2, trackH);
-        const knobH = Math.max(18, trackH * (this.textRect.h / total));
-        const knobY = trackY + (trackH - knobH) * (this.scroll / (this.scrollMax || 1));
-        ctx.fillStyle = 'rgba(0,0,0,.30)';
-        ctx.fillRect(trackX, knobY, 2, knobH);
-      } else {
-        for (let i = 0; i < lines.length; i++) {
-          ctx.fillText(lines[i], this.textRect.x, this.textRect.y + i * lh);
-        }
-      }
-      ctx.restore();
-    }
-
-    /** 按宽度折行（中文按字断行，英文按空格） */
-    _wrap(mctx, text, maxW) {
-      if (!text) return [];
-      const out = [];
-      let line = '';
-      const isCJK = ch => /[一-鿿　-〿＀-￯]/.test(ch);
-      for (let i = 0; i < text.length; i++) {
-        const ch = text[i];
-        if (ch === '\n') { out.push(line); line = ''; continue; }
-        const test = line + ch;
-        if (mctx.measureText(test).width > maxW && line) {
-          if (!isCJK(ch) && /\S/.test(ch)) {
-            // 西文单词：回退到最后一个空格
-            const sp = line.lastIndexOf(' ');
-            if (sp > 0) {
-              out.push(line.slice(0, sp));
-              line = line.slice(sp + 1) + ch;
-              continue;
-            }
+const NO_START = '，。！？、；：,.!?;:）)」』】》〉…—~～';
+export function wrapText(g, text, maxW) {
+  const out = [];
+  for (const para of String(text).split('\n')) {
+    const toks = para.match(/[A-Za-z0-9'’\-]+|\s+|./gu) || [''];
+    let line = '';
+    for (let t of toks) {
+      const test = line + t;
+      if (g.measureText(test).width <= maxW || line === '') {
+        if (g.measureText(t).width > maxW && line === '') {
+          for (const ch of t) {
+            if (g.measureText(line + ch).width > maxW && line) { out.push(line); line = ''; }
+            line += ch;
           }
-          out.push(line);
-          line = ch;
-        } else {
-          line = test;
-        }
+        } else line = test;
+        continue;
       }
-      if (line) out.push(line);
-      return out;
+      if (NO_START.includes(t[0])) { line += t; continue; }
+      out.push(line.replace(/\s+$/, ''));
+      line = /^\s+$/.test(t) ? '' : t;
     }
-
-    /** 生成气泡皮肤（缓存，样式变化才重画） */
-    _buildSkin(w, h) {
-      const key = w + 'x' + h + '|' + this.style + '|' + this.accent + '|' + this.fontSize;
-      if (this._skin && this._skinKey === key) return this._skin;
-
-      const sw = Math.max(1.4, w * 4.6 / 1026);
-      const pad = Math.max(9, w * 0.052);
-      const tailH = Math.min(15, h * 0.15);
-      const bodyL = sw + 1.5, bodyR = w - sw - 1.5;
-      const bodyT = sw + 1.5, bodyB = h - tailH - sw - 1.5;
-      const radius = Math.max(8, Math.min(15, (bodyB - bodyT) * 0.32));
-      const cx = (bodyL + bodyR) / 2;
-      const tailTipY = bodyB + tailH;
-      const tailL = cx - 15, tailR = cx + 7, tipX = cx - 5;
-
-      this.ink = inkFor(this.accent);
-      this.textRect = {
-        x: bodyL + pad, y: bodyT + pad * 0.72,
-        w: Math.max(20, (bodyR - bodyL) - pad * 2),
-        h: Math.max(16, (bodyB - bodyT) - pad * 1.45),
-      };
-
-      const cv = document.createElement('canvas');
-      cv.width = Math.ceil(w); cv.height = Math.ceil(h);
-      const g = cv.getContext('2d');
-      g.clearRect(0, 0, w, h);
-
-      if (this.style === 'classic') {
-        this._drawClassic(g, w, h, sw, bodyL, bodyT, bodyR, bodyB, cx);
-      } else if (this.style === 'comic') {
-        this._drawComic(g, sw, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY);
-      } else {
-        this._drawCard(g, sw, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY);
-      }
-
-      this._skin = cv;
-      this._skinKey = key;
-      return cv;
-    }
-
-    _drawCard(g, sw, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY) {
-      // 柔和投影（两层）
-      g.save();
-      g.translate(0, 2.5);
-      g.fillStyle = 'rgba(42,58,102,.09)';
-      bubblePath(g, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY);
-      g.fill();
-      g.translate(0, 2.5);
-      g.fillStyle = 'rgba(42,58,102,.06)';
-      bubblePath(g, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY);
-      g.fill();
-      g.restore();
-
-      // 白 → 淡蓝渐变
-      const lg = g.createLinearGradient(0, bodyT, 0, tailTipY);
-      lg.addColorStop(0, '#FFFFFF');
-      lg.addColorStop(1, lighten(this.accent, 0.78));
-      g.fillStyle = lg;
-      bubblePath(g, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY);
-      g.fill();
-      g.strokeStyle = this.accent;
-      g.globalAlpha = 0.84;
-      g.lineWidth = sw;
-      bubblePath(g, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY);
-      g.stroke();
-      g.globalAlpha = 1;
-
-      // 顶部高光
-      const inset = radius + 4;
-      if (bodyR - bodyL > inset * 2) {
-        g.strokeStyle = 'rgba(255,255,255,.5)';
-        g.lineWidth = Math.max(1, sw * 0.7);
-        g.beginPath();
-        g.moveTo(bodyL + inset, bodyT + sw * 1.6);
-        g.lineTo(bodyR - inset, bodyT + sw * 1.6);
-        g.stroke();
-      }
-    }
-
-    _drawComic(g, sw, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY) {
-      // 偏移投影
-      g.save();
-      g.translate(5, 5);
-      g.fillStyle = 'rgba(0,0,0,.16)';
-      bubblePath(g, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY);
-      g.fill();
-      g.restore();
-
-      // 白底 + 粗描边
-      g.fillStyle = '#FFFFFF';
-      bubblePath(g, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY);
-      g.fill();
-      g.strokeStyle = darken(this.accent, 0.55);
-      g.lineWidth = Math.max(2.4, sw * 1.7);
-      g.lineJoin = 'round';
-      bubblePath(g, bodyL, bodyT, bodyR, bodyB, radius, tailL, tailR, tipX, tailTipY);
-      g.stroke();
-      this.ink = darken(this.accent, 0.78);
-    }
-
-    _drawClassic(g, w, h, sw, bodyL, bodyT, bodyR, bodyB, cx) {
-      const rx = (bodyR - bodyL) / 2, ry = (bodyB - bodyT) / 2;
-      const ecx = cx, ecy = (bodyT + bodyB) / 2;
-      const csw = Math.max(2.4, sw * 2.1);
-      const r1 = w * 0.048, x1 = cx - rx * 0.74, y1 = h - r1 * 1.25;
-      const r2 = w * 0.031, x2 = cx - rx * 0.33, y2 = h - r2 * 0.85;
-      const stroke = darken(this.accent, 0.30);
-      const shd = darken(this.accent, 0.45);
-
-      // 椭圆影
-      g.fillStyle = 'rgba(0,0,0,.09)';
-      g.beginPath(); g.ellipse(ecx, ecy + 3, rx, ry, 0, 0, Math.PI * 2); g.fill();
-      g.beginPath(); g.ellipse(x1, y1 + 2, r1, r1 * 0.7, 0, 0, Math.PI * 2); g.fill();
-      g.beginPath(); g.ellipse(x2, y2 + 2, r2, r2 * 0.7, 0, 0, Math.PI * 2); g.fill();
-
-      // 白底椭圆 + 描边
-      g.fillStyle = '#FFFFFF';
-      g.strokeStyle = stroke;
-      g.lineWidth = csw;
-      const ell = (cx2, cy2, rx2, ry2) => {
-        g.beginPath(); g.ellipse(cx2, cy2, rx2, ry2, 0, 0, Math.PI * 2);
-        g.fill(); g.stroke();
-      };
-      ell(ecx, ecy, rx, ry);
-      ell(x1, y1, r1, r1 * 0.7);
-      ell(x2, y2, r2, r2 * 0.7);
-
-      this.ink = darken(this.accent, 0.55);
-      this.textRect = {
-        x: ecx - rx * 0.80, y: ecy - ry * 0.74,
-        w: rx * 1.60, h: ry * 1.48,
-      };
-    }
+    out.push(line);
   }
+  return out;
+}
 
-  global.QPet = global.QPet || {};
-  global.QPet.Bubble = Bubble;
-  global.QPet.colorUtil = { hexToRgb, rgbToHex, darken, lighten, inkFor };
-})(window);
+// 在 ctx（已按 k 缩放到 CSS 像素）上画一帧气泡；返回滚动信息
+export function drawBubble(g, skin, text, { font, fontPx, alpha, scale, scroll }) {
+  const { w, bh, tr, ink } = skin;
+  g.save();
+  g.translate(w / 2, bh); g.scale(scale, scale); g.translate(-w / 2, -bh);
+  g.globalAlpha = alpha;
+  g.drawImage(skin.canvas, 0, 0, w, bh);
+  g.font = font;
+  g.textBaseline = 'top';
+  g.textAlign = 'center';
+  const lines = wrapText(g, text, Math.max(12, tr.w));
+  const lh = Math.round(fontPx * 1.36);
+  const total = lines.length * lh + 6;
+  const need = total > tr.h;
+  let maxScroll = 0;
+  g.fillStyle = rgba(ink);
+  if (need) {
+    maxScroll = Math.max(0, total - tr.h + 8);
+    scroll = Math.max(0, Math.min(scroll, maxScroll));
+    g.save();
+    g.beginPath(); g.rect(tr.x, tr.y - 1, tr.w, tr.h + 2); g.clip();
+    lines.forEach((ln, i) => g.fillText(ln, tr.x + tr.w / 2, tr.y - scroll + 3 + i * lh));
+    g.restore();
+    const tx = tr.x + tr.w - 2.5, ty = tr.y, th = tr.h;
+    g.fillStyle = rgba(ink, 46 / 255);
+    g.fillRect(tx, ty, 2, th);
+    const ratio = tr.h / total;
+    if (ratio > 0.12 && ratio < 1) {
+      const thumb = Math.max(18, th * ratio);
+      const avail = Math.max(1, total - tr.h + 8);
+      g.fillStyle = rgba(ink, 165 / 255);
+      g.fillRect(tx, ty + (th - thumb) * (scroll / avail), 2, thumb);
+    }
+  } else {
+    const top = tr.y - tr.h * 0.05 + (tr.h - (total - 6)) / 2;
+    lines.forEach((ln, i) => g.fillText(ln, tr.x + tr.w / 2, top + i * lh));
+  }
+  g.restore();
+  return { need, maxScroll, scroll };
+}

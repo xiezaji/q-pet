@@ -1,0 +1,25 @@
+{
+ "id": "naiwa",
+ "name": "奶蛙",
+ "image": "image.webp",
+ "imageW": 461,
+ "imageH": 542,
+ "charH": 400,
+ "amp": {
+  "idle": 1.0,
+  "press": 1.0,
+  "click": 1.0,
+  "drag": 1.0
+ },
+ "press": "voices/v01.mp3",
+ "release": "",
+ "voices": [
+  {
+   "text": "哈哈哈哈哈",
+   "file": "voices/v01.mp3"
+  }
+ ],
+ "lines": [
+  "哈哈哈哈哈"
+ ]
+}

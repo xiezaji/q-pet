@@ -1,456 +1,497 @@
-/* ==========================================================================
-   settings.js —— 设置中心
-   页面结构对齐桌面端：气泡 / 通用 / 角色 / 动画 / 语音 / 统计
-   每项只写「用户需要知道的」，细节放 title 提示（与桌面端文案精简原则一致）。
-   ========================================================================== */
-(function (global) {
-  'use strict';
+// 设置窗口外壳：标题栏 / 左摘要 / 中枢纽 / 右八页入口 / 页眉 / 底栏 / 保存与未保存
+import { el, svg, pad2 } from './util.js';
+import { chars, clone, saveCfg, heightOf, on, VERSION } from './store.js';
+import { IDLE_N, PRESS_N, CLICK_N, DRAG_N } from './frames.js';
+import { applyTheme, ask, button, closePop } from './ui.js';
+import { PAGES, META } from './pages.js';
 
-  const { colorUtil } = global.QPet;
-  const { darken, lighten, inkFor } = colorUtil;
+const ICONS = [
+  'M2.5,3.5 H13.5 V11 H8.5 L5.5,13.5 V11 H2.5 Z',
+  'M2.6,5.5 H13.4 M2.6,10.5 H13.4 M4.6,3.6 H8.2 V7.4 H4.6 Z M7.8,8.6 H11.4 V12.4 H7.8 Z',
+  'M8,7.5 A2.4,2.4 0 1,1 8,2.7 A2.4,2.4 0 1,1 8,7.5 Z M3.8,13.5 C3.8,10.9 5.6,9.4 8,9.4 C10.4,9.4 12.2,10.9 12.2,13.5',
+  'M2.5,4.5 H13.5 V11.5 H2.5 Z M5.5,4.5 V11.5 M10.5,4.5 V11.5',
+  'M6,4.6 A2,2 0 0,1 10,4.6 V8.4 A2,2 0 0,1 6,8.4 Z M8,10.4 V13 M5.5,13 H10.5',
+  'M8,2.6 L13.2,5.4 V10.6 L8,13.4 L2.8,10.6 V5.4 Z M2.8,5.4 L8,8.2 L13.2,5.4 M8,8.2 V13.4',
+  'M4,12.4 V7.4 M8,12.4 V3.8 M12,12.4 V9.4 M2.5,14 H13.5',
+  'M8,2.2 A5.8,5.8 0 1,1 8,13.8 A5.8,5.8 0 1,1 8,2.2 Z M8,7.2 V11 M8,5 V5.2',
+];
+const TILES = [
+  ['bubble', '气泡', '字体 │ 颜色 │ 频率'],
+  ['ui', '通用设置', '显示 │ 全屏 │ 主题色'],
+  ['char', '形象与大小', '角色 │ 高度 │ 立绘'],
+  ['anim', '动画', '待机 │ 点击 │ 拖动'],
+  ['voice', '语音', '音量 │ 试听 │ 台词'],
+  ['import', '导入', '角色包 │ 素材'],
+  ['stats', '使用统计', '陪伴时长 │ 点击'],
+  ['about', '关于', '版本 │ 许可'],
+];
+const ARROW = '<svg width="6.5" height="11" viewBox="-1 -1 6.5 11"><path d="M0,0 L4,4.5 L0,9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+const CAP_ICONS = {
+  min: 'M3.5,8 H12.5',
+  max: 'M3.5,3.5 H12.5 V12.5 H3.5 Z',
+  restore: 'M3.5,5.5 H10.5 V12.5 H3.5 Z M5.5,5.5 V3.5 H12.5 V10.5 H10.5',
+  close: 'M4,4 L12,12 M12,4 L4,12',
+};
+const LIVE_KEYS = ['showPet', 'hideFullscreen'];
 
-  const PAGES = [
-    { id: 'bubble', name: '气泡' },
-    { id: 'char',   name: '角色' },
-    { id: 'anim',   name: '动画' },
-    { id: 'voice',  name: '语音' },
-    { id: 'ui',     name: '通用' },
-    { id: 'stats',  name: '统计' },
-  ];
+function stable(o) {
+  if (Array.isArray(o)) return '[' + o.map(stable).join(',') + ']';
+  if (o && typeof o === 'object') return '{' + Object.keys(o).sort().map(k => JSON.stringify(k) + ':' + stable(o[k])).join(',') + '}';
+  return JSON.stringify(o);
+}
+const strip = c => { const o = clone(c); LIVE_KEYS.forEach(k => delete o[k]); return o; };
 
-  const BUBBLE_COLORS = ['#8FA6D8', '#E8F1FB', '#FFD8E8', '#D8F3E0', '#FFE8C8', '#E8D8FF', '#F5E6D0', '#2A2A32'];
-  const FONT_SIZES = [9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24];
-  const THEMES = ['#12C87A', '#005FB8', '#8B5CF6', '#EF4444', '#F59E0B', '#EC4899', '#0EA5E9', '#1A1A1E'];
+export class Settings {
+  constructor({ pet, cfg, layer, deskSize, taskBtn, onQuit }) {
+    this.pet = pet;
+    this.saved = clone(cfg);
+    this.draft = clone(cfg);
+    this.layer = layer;
+    this.deskSize = deskSize;
+    this.taskBtn = taskBtn;
+    this.onQuit = onQuit;
+    this.page = null;
+    this.open = false;
+    this.min = false;
+    this.max = false;
+    this.rect = null;
+    this.z = 1; this.panX = 0; this.panY = 0;
+    this.lastBubH = cfg.bubbleH > 0 ? cfg.bubbleH : 110;
+    this.build();
+    on('pos', () => this.open && this.refreshPet());
+    on('petstate', () => this.open && this.refreshPet());
+    addEventListener('resize', () => { if (this.open) this.place(); });
+    setInterval(() => { if (this.open && !this.min) this.refreshDirty(); }, 600);
+  }
 
-  function el(tag, attrs, children) {
-    const n = document.createElement(tag);
-    if (attrs) for (const k in attrs) {
-      if (k === 'class') n.className = attrs[k];
-      else if (k === 'html') n.innerHTML = attrs[k];
-      else if (k === 'text') n.textContent = attrs[k];
-      else if (k.startsWith('on') && typeof attrs[k] === 'function') n.addEventListener(k.slice(2), attrs[k]);
-      else if (attrs[k] !== null && attrs[k] !== undefined) n.setAttribute(k, attrs[k]);
-    }
-    if (children) (Array.isArray(children) ? children : [children]).forEach(c => {
-      if (c) n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  // ---------------- 供页面使用 ----------------
+  ch() { return chars.get(this.draft.charId) || chars.get('furina') || chars.values().next().value; }
+  H() { return heightOf(this.draft, this.ch()); }
+  frameCount() {
+    const p = this.pet;
+    if (p.sprite && p.ch && p.ch.id === this.ch().id) return p.sprite.total;
+    return IDLE_N + PRESS_N + CLICK_N + DRAG_N;
+  }
+  changed(key) {
+    if (key === 'themeColor') applyTheme(this.draft.themeColor);
+    if (key === 'bubbleH' && this.draft.bubbleH > 0) this.lastBubH = this.draft.bubbleH;
+    this.refresh();
+  }
+  setLive(key, v) {
+    this.draft[key] = v;
+    this.saved[key] = v;
+    saveCfg(this.saved);
+    if (this.pet.cfg) this.pet.cfg[key] = v;
+    if (key === 'showPet') { if (v && !this.pet.running) this.pet.setRunning(true); else this.pet.updateVisible(); }
+    if (key === 'hideFullscreen') this.pet.checkFullscreen();
+    this.refresh();
+  }
+  // 导入 / 删除角色这类「已经落盘」的操作：直接写进已保存配置并应用
+  async commit(patch) {
+    Object.assign(this.saved, clone(patch));
+    Object.assign(this.draft, clone(patch));
+    saveCfg(this.saved);
+    await this.pet.apply(clone(this.saved));
+    this.refresh();
+  }
+  rerender() { if (this.page) this.renderPage(true); }
+
+  // ---------------- 构建 ----------------
+  build() {
+    const capBtn = (kind, fn, title) => {
+      const b = el('button', { class: 'cap-btn' + (kind === 'close' ? ' close' : ''), type: 'button', title, html: svg(CAP_ICONS[kind], 14, 1), onclick: fn });
+      return b;
+    };
+    this.capDot = el('i', { class: 'cap-dot' });
+    this.capRun = el('span', { class: 'eyebrow', style: { marginLeft: '7px' } });
+    this.capPos = el('span', { class: 'cap-val', style: { marginLeft: '9px' } });
+    this.capChar = el('span', { class: 'cap-val' });
+    this.capVoice = el('span', { class: 'cap-val' });
+    this.back = el('button', { class: 'back-link', type: 'button', onclick: () => this.go(null) }, '角色枢纽 ›');
+    this.maxBtn = capBtn('max', () => this.toggleMax(), '最大化');
+    const cap = el('div', { class: 'cap' },
+      el('img', { src: 'assets/icon.png', alt: '' }),
+      el('span', { class: 'eyebrow', style: { marginLeft: '10px' } }, '// Q PET'),
+      el('i', { class: 'vd s' }),
+      el('span', { class: 'cap-title' }, '设置'),
+      el('div', { class: 'cap-info' },
+        el('i', { class: 'vd' }), this.capDot, this.capRun, this.capPos,
+        el('i', { class: 'vd' }), el('span', { class: 'eyebrow' }, 'CHAR'), this.capChar,
+        el('i', { class: 'vd' }), el('span', { class: 'eyebrow' }, 'VOICE'), this.capVoice),
+      el('div', { class: 'cap-fill' }),
+      this.back,
+      capBtn('min', () => this.minimize(), '最小化'), this.maxBtn, capBtn('close', () => this.close(), '关闭'));
+    this.bindCaption(cap);
+
+    this.win = el('div', { class: 'win', hidden: true },
+      cap,
+      el('div', { class: 'wbody' }, this.buildSummary(), el('div', { class: 'mid' }, this.buildHub(), this.buildContent()), this.buildTiles()));
+    this.win.addEventListener('pointerdown', () => { if (this.layer.lastElementChild !== this.win) this.layer.append(this.win); });
+    this.layer.append(this.win);
+  }
+
+  bindCaption(cap) {
+    cap.addEventListener('dblclick', e => { if (!e.target.closest('button')) this.toggleMax(); });
+    cap.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || e.target.closest('button') || this.max || !this.rect) return;
+      const sx = e.clientX, sy = e.clientY, ox = this.rect.x, oy = this.rect.y;
+      cap.setPointerCapture(e.pointerId);
+      const mv = ev => { this.rect.x = ox + ev.clientX - sx; this.rect.y = oy + ev.clientY - sy; this.clampRect(); this.applyRect(); };
+      const up = () => { cap.removeEventListener('pointermove', mv); cap.removeEventListener('pointerup', up); cap.removeEventListener('pointercancel', up); };
+      cap.addEventListener('pointermove', mv);
+      cap.addEventListener('pointerup', up);
+      cap.addEventListener('pointercancel', up);
     });
-    return n;
   }
 
-  class SettingsPanel {
-    constructor(pet, stats) {
-      this.pet = pet;
-      this.stats = stats;
-      this.page = 'bubble';
-      this.tabsEl = document.getElementById('tabs');
-      this.bodyEl = document.getElementById('panel-body');
-      this._buildTabs();
-      this.pet.onConfigChange(() => this.render());
-      this.render();
-    }
-
-    _buildTabs() {
-      this.tabsEl.innerHTML = '';
-      for (const p of PAGES) {
-        const b = el('button', {
-          class: 'tab' + (p.id === this.page ? ' on' : ''),
-          text: p.name,
-          onclick: () => { this.page = p.id; this._buildTabs(); this.render(); },
-        });
-        this.tabsEl.appendChild(b);
-      }
-    }
-
-    render() {
-      const b = this.bodyEl;
-      b.innerHTML = '';
-      const cfg = this.pet.cfg;
-      switch (this.page) {
-        case 'bubble': this._bubble(b, cfg); break;
-        case 'char':   this._char(b, cfg); break;
-        case 'anim':   this._anim(b, cfg); break;
-        case 'voice':  this._voice(b, cfg); break;
-        case 'ui':     this._ui(b, cfg); break;
-        case 'stats':  this._stats(b, cfg); break;
-      }
-    }
-
-    /* ---------------- 通用组件 ---------------- */
-    _row(label, sub, ctl) {
-      return el('div', { class: 'row' }, [
-        el('div', { class: 'row-label' }, [
-          el('b', { text: label }),
-          sub ? el('span', { text: sub }) : null,
-        ]),
-        el('div', { class: 'row-ctl' }, ctl),
-      ]);
-    }
-
-    _switch(on, onchange) {
-      const s = el('div', { class: 'switch' + (on ? ' on' : ''), role: 'switch' });
-      s.addEventListener('click', () => {
-        const nv = !s.classList.contains('on');
-        s.classList.toggle('on', nv);
-        onchange(nv);
-      });
-      return s;
-    }
-
-    _slider(val, min, max, step, fmt, onchange) {
-      const out = el('span', { class: 'slider-val', text: fmt(val) });
-      const r = el('input', { type: 'range', class: 'slider', min, max, step, value: val });
-      r.addEventListener('input', () => { out.textContent = fmt(+r.value); onchange(+r.value); });
-      return [r, out];
-    }
-
-    _select(value, options, onchange) {
-      const s = el('select', { class: 'input' });
-      for (const o of options) {
-        const op = el('option', { value: o.value ?? o, text: o.label ?? o });
-        if ((o.value ?? o) === value) op.selected = true;
-        s.appendChild(op);
-      }
-      s.addEventListener('change', () => onchange(s.value));
-      return s;
-    }
-
-    /* ---------------- 气泡页 ---------------- */
-    _bubble(b, cfg) {
-      b.appendChild(el('h1', { class: 'page-title', text: '对话气泡' }));
-      b.appendChild(el('p', { class: 'page-sub', text: '台词与音效' }));
-
-      const card = el('div', { class: 'card' });
-      card.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '外观' })]));
-
-      card.appendChild(this._row('显示气泡', null, [this._switch(cfg.bubbleOn, v => this.pet.update({ bubbleOn: v }))]));
-      card.appendChild(this._row('气泡高度', '像素', this._slider(cfg.bubbleH, 60, 220, 4, v => v + 'px', v => this.pet.update({ bubbleH: v }))));
-      card.appendChild(this._row('样式', null, this._select(cfg.bubbleStyle, [
-        { value: 'card', label: '柔和渐变' },
-        { value: 'comic', label: '漫画描边' },
-        { value: 'classic', label: '椭圆对话框' },
-      ], v => this.pet.update({ bubbleStyle: v }))));
-
-      // 色板
-      const sw = el('div', { class: 'swatches' });
-      for (const c of BUBBLE_COLORS) {
-        const s = el('div', {
-          class: 'swatch' + (cfg.bubbleColor.toLowerCase() === c.toLowerCase() ? ' on' : ''),
-          style: 'background:' + c,
-          title: c,
-          onclick: () => {
-            sw.querySelectorAll('.swatch').forEach(x => x.classList.remove('on'));
-            s.classList.add('on');
-            this.pet.update({ bubbleColor: c, bubbleInk: 'auto' });
-          },
-        });
-        sw.appendChild(s);
-      }
-      card.appendChild(el('div', { class: 'row' }, [
-        el('div', { class: 'row-label' }, [el('b', { text: '气泡颜色' })]),
-        el('div', { class: 'row-ctl' }, [sw]),
-      ]));
-      b.appendChild(card);
-
-      // 文字
-      const card2 = el('div', { class: 'card' });
-      card2.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '文字' })]));
-      card2.appendChild(this._row('字号', 'pt', this._slider(cfg.bubbleSize, 9, 24, 0.5, v => v + 'pt', v => this.pet.update({ bubbleSize: v }))));
-      card2.appendChild(this._row('字体', null, this._select(cfg.bubbleFont, [
-        { value: 'YouYuan', label: '幼圆' },
-        { value: 'Microsoft YaHei', label: '微软雅黑' },
-        { value: 'SimSun', label: '宋体' },
-        { value: 'SimHei', label: '黑体' },
-        { value: 'KaiTi', label: '楷体' },
-        { value: 'FangSong', label: '仿宋' },
-      ], v => {
-        this.pet.bubble.fontFamily = v === 'YouYuan' ? '"YouYuan","Microsoft YaHei",sans-serif' : `"${v}","Microsoft YaHei",sans-serif`;
-        this.pet.bubble._skin = null;
-        this.pet.update({ bubbleFont: v });
-      })));
-      b.appendChild(card2);
-
-      // 预览
-      const prev = el('div', { class: 'bubble-preview' });
-      const skin = el('div', {
-        class: 'bubble-skin',
-        text: '这是一条示例台词，用来预览气泡的样子。',
-        style: 'background:' + cfg.bubbleColor + ';color:' + inkFor(cfg.bubbleColor),
-      });
-      prev.appendChild(skin);
-      const card3 = el('div', { class: 'card' });
-      card3.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '预览' })]));
-      card3.appendChild(prev);
-      b.appendChild(card3);
-    }
-
-    /* ---------------- 角色页 ---------------- */
-    _char(b, cfg) {
-      b.appendChild(el('h1', { class: 'page-title', text: '角色与大小' }));
-      b.appendChild(el('p', { class: 'page-sub', text: '选择角色并调整大小' }));
-
-      const grid = el('div', { class: 'char-grid' });
-      for (const c of this.pet.chars) {
-        const item = el('div', {
-          class: 'char-item' + (c.id === cfg.char ? ' on' : ''),
-          onclick: async () => {
-            grid.querySelectorAll('.char-item').forEach(x => x.classList.remove('on'));
-            item.classList.add('on');
-            await this.pet.setChar(c.id);
-            this.stats.enterChar(c.id);
-          },
-        }, [
-          el('img', { src: `assets/chars/${encodeURIComponent(c.id)}/portrait.webp`, alt: c.name, loading: 'lazy' }),
-          el('span', { text: c.name }),
-        ]);
-        grid.appendChild(item);
-      }
-      const card = el('div', { class: 'card' });
-      card.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '角色' }), el('span', { class: 'sub', text: this.pet.chars.length + ' 个' })]));
-      card.appendChild(grid);
-      b.appendChild(card);
-
-      const card2 = el('div', { class: 'card' });
-      card2.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '大小' })]));
-      card2.appendChild(this._row('显示缩放', null, this._slider(cfg.scale, 50, 200, 5, v => v + '%', v => this.pet.update({ scale: v }))));
-      card2.appendChild(el('div', { class: 'notice', text: '在舞台上拖拽可以移动位置。' }));
-      b.appendChild(card2);
-
-      // 导入角色包
-      const card3 = el('div', { class: 'card' });
-      card3.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '导入角色包' })]));
-      const fileInput = el('input', { type: 'file', accept: '.zip', style: 'display:none' });
-      fileInput.addEventListener('change', async () => {
-        const f = fileInput.files && fileInput.files[0];
-        if (!f) return;
-        await this._importZip(f);
-        fileInput.value = '';
-      });
-      card3.appendChild(fileInput);
-      card3.appendChild(el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' }, [
-        el('button', { class: 'btn', text: '选择 zip 包', onclick: () => fileInput.click() }),
-      ]));
-      card3.appendChild(el('div', { class: 'notice', style: 'margin-top:10px', text: '包内需含 char.json、frames/*.webp、voices/*.mp3。' }));
-      b.appendChild(card3);
-    }
-
-    /** 导入 zip 角色包 */
-    async _importZip(file) {
-      const toast = global.QPet.toast;
-      try {
-        toast('正在解析 ' + file.name + '…');
-        const buf = await file.arrayBuffer();
-        const files = await global.QPet.CharStore.unzip(buf);
-        if (!Object.keys(files).length) throw new Error('压缩包是空的');
-
-        const base = file.name.replace(/\.zip$/i, '') || 'my-char';
-        const id = 'user_' + base + '_' + Date.now().toString(36);
-        const pack = await global.QPet.CharStore.buildPack(id, files);
-        await global.QPet.CharStore.savePack(pack);
-
-        // 加入内存角色表
-        this.pet.chars.push({ id, name: pack.name, voiceCount: pack.voices.length, user: true });
-        toast('已导入「' + pack.name + '」，共 ' + pack.frames.length + ' 帧 / ' + pack.voices.length + ' 语音');
-        this.render();
-      } catch (e) {
-        toast('导入失败：' + (e && e.message || e));
-      }
-    }
-
-    /* ---------------- 动画页 ---------------- */
-    _anim(b, cfg) {
-      b.appendChild(el('h1', { class: 'page-title', text: '动画' }));
-      b.appendChild(el('p', { class: 'page-sub', text: '四组动画各自独立' }));
-
-      const card = el('div', { class: 'card' });
-      const rows = [
-        ['idle', '待机'], ['press', '按下'], ['click', '点击'], ['drag', '拖动'],
-      ];
-      for (const [k, label] of rows) {
-        card.appendChild(this._row(label, null, [
-          this._switch(cfg.animOn[k], v => {
-            const animOn = Object.assign({}, cfg.animOn); animOn[k] = v;
-            this.pet.update({ animOn });
-          }),
-        ]));
-      }
-      b.appendChild(card);
-
-      const card2 = el('div', { class: 'card' });
-      card2.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '幅度与倍速' })]));
-      for (const [k, label] of rows) {
-        card2.appendChild(this._row(label + ' 倍速', null, this._slider(cfg.speed[k], 25, 200, 5, v => v + '%', v => {
-          const speed = Object.assign({}, cfg.speed); speed[k] = v;
-          this.pet.update({ speed });
-        })));
-      }
-      card2.appendChild(el('div', { class: 'notice', text: '幅度需保存后生效，倍速即时生效。' }));
-      b.appendChild(card2);
-    }
-
-    /* ---------------- 语音页 ---------------- */
-    _voice(b, cfg) {
-      b.appendChild(el('h1', { class: 'page-title', text: '语音' }));
-      b.appendChild(el('p', { class: 'page-sub', text: '台词与音效' }));
-
-      const card = el('div', { class: 'card' });
-      card.appendChild(this._row('音量', null, this._slider(cfg.volume, 0, 100, 1, v => v + '%', v => this.pet.update({ volume: v }))));
-      card.appendChild(this._row('点击时说话', null, [this._switch(cfg.clickVoice, v => this.pet.update({ clickVoice: v }))]));
-      card.appendChild(this._row('说话方式', null, this._select(cfg.voiceMode, [
-        { value: 'random', label: '随机抽一句' },
-        { value: 'sequential', label: '按顺序挨个说' },
-      ], v => this.pet.update({ voiceMode: v }))));
-      b.appendChild(card);
-
-      // 台词库
-      const lines = this.pet.charData ? (this.pet.charData.voices || []) : [];
-      const card2 = el('div', { class: 'card' });
-      card2.appendChild(el('div', { class: 'card-head' }, [
-        el('h3', { text: '台词库' }),
-        el('span', { class: 'sub', text: lines.length + ' 条' }),
-      ]));
-      if (!lines.length) {
-        card2.appendChild(el('div', { class: 'notice warn', text: '当前角色没有语音。' }));
-      } else {
-        const list = el('div', { class: 'line-list' });
-        lines.forEach((l, i) => {
-          const row = el('div', { class: 'line-row' }, [
-            el('span', { class: 'txt', text: l.text, title: l.text }),
-            el('span', { class: 't', text: '#' + (i + 1) }),
-            el('button', {
-              class: 'btn sm', text: '播放',
-              onclick: async (e) => {
-                e.stopPropagation();
-                await this.pet.audio.play(l);
-                this.pet.bubble.show(l.text, Date.now(), 5200);
-              },
-            }),
-          ]);
-          list.appendChild(row);
-        });
-        card2.appendChild(list);
-        card2.appendChild(el('div', { style: 'margin-top:10px' }, [
-          el('button', {
-            class: 'btn', text: '随机来一句',
-            onclick: async () => {
-              const t = await this.pet.audio.playNext();
-              if (t) this.pet.bubble.show(t, Date.now(), 5200);
-            },
-          }),
-        ]));
-      }
-      b.appendChild(card2);
-    }
-
-    /* ---------------- 通用页 ---------------- */
-    _ui(b, cfg) {
-      b.appendChild(el('h1', { class: 'page-title', text: '通用设置' }));
-      b.appendChild(el('p', { class: 'page-sub', text: '外观与行为' }));
-
-      // 显示桌宠 —— 放在最前，这是最全局的控制
-      const cardV = el('div', { class: 'card' });
-      cardV.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '桌宠' })]));
-      cardV.appendChild(this._row('显示桌宠', '关闭后暂停渲染', [
-        this._switch(this.pet.visible, v => this.pet.setVisible(v)),
-      ]));
-      cardV.appendChild(el('div', { class: 'notice', text: '关掉后可一键唤回。' }));
-      b.appendChild(cardV);
-
-      const card = el('div', { class: 'card' });
-      card.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '主题色' })]));
-      const sw = el('div', { class: 'swatches' });
-      for (const t of THEMES) {
-        const s = el('div', {
-          class: 'swatch' + (cfg.theme.toLowerCase() === t.toLowerCase() ? ' on' : ''),
-          style: 'background:' + t,
-          title: t,
-          onclick: () => {
-            sw.querySelectorAll('.swatch').forEach(x => x.classList.remove('on'));
-            s.classList.add('on');
-            this.pet.update({ theme: t });
-          },
-        });
-        sw.appendChild(s);
-      }
-      card.appendChild(sw);
-      b.appendChild(card);
-
-      const card2 = el('div', { class: 'card' });
-      card2.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '数据' })]));
-      card2.appendChild(el('div', { class: 'notice', text: '所有数据仅保存在本机浏览器，不联网、不上传。' }));
-      card2.appendChild(el('div', { style: 'margin-top:10px' }, [
-        el('button', {
-          class: 'btn', text: '重置位置',
-          onclick: () => { this.pet.resetPos(); toast('已重置位置'); },
-        }),
-        el('button', {
-          class: 'btn', style: 'margin-left:8px', text: '恢复默认设置',
-          onclick: () => {
-            localStorage.removeItem('qpet.config.v1');
-            toast('已恢复默认，刷新后生效');
-          },
-        }),
-      ]));
-      b.appendChild(card2);
-    }
-
-    /* ---------------- 统计页 ---------------- */
-    _stats(b, cfg) {
-      b.appendChild(el('h1', { class: 'page-title', text: '使用统计' }));
-      b.appendChild(el('p', { class: 'page-sub', text: '仅统计本机' }));
-
-      const s = this.stats.summary();
-      const fmtMs = ms => {
-        const m = Math.floor(ms / 60000);
-        if (m < 60) return m + ' 分';
-        const h = Math.floor(m / 60);
-        return h + ' 小时 ' + (m % 60) + ' 分';
-      };
-
-      const card = el('div', { class: 'card' });
-      card.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '概览' })]));
-      const grid = el('div', { class: 'stat-grid' });
-      grid.appendChild(el('div', { class: 'stat-box' }, [el('b', { text: fmtMs(s.totalMs) }), el('span', { text: '总陪伴时长' })]));
-      grid.appendChild(el('div', { class: 'stat-box' }, [el('b', { text: String(s.interactions) }), el('span', { text: '互动次数' })]));
-      grid.appendChild(el('div', { class: 'stat-box' }, [el('b', { text: String(s.lines) }), el('span', { text: '台词触发' })]));
-      grid.appendChild(el('div', { class: 'stat-box' }, [el('b', { text: String(s.sessions) }), el('span', { text: '打开次数' })]));
-      card.appendChild(grid);
-      b.appendChild(card);
-
-      if (s.chars.length) {
-        const card2 = el('div', { class: 'card' });
-        card2.appendChild(el('div', { class: 'card-head' }, [el('h3', { text: '角色陪伴时长' })]));
-        const bl = el('div', { class: 'bar-list' });
-        const max = Math.max(...s.chars.map(c => c.ms)) || 1;
-        for (const c of s.chars) {
-          const nm = (this.pet.chars.find(x => x.id === c.id) || {}).name || c.id;
-          bl.appendChild(el('div', { class: 'bar-item' }, [
-            el('span', { class: 'n', text: nm }),
-            el('span', { class: 't' }, [el('i', { style: 'width:' + Math.round(c.ms / max * 100) + '%' })]),
-            el('span', { class: 'v', text: fmtMs(c.ms) }),
-          ]));
-        }
-        card2.appendChild(bl);
-        b.appendChild(card2);
-      }
-
-      const card3 = el('div', { class: 'card' });
-      card3.appendChild(el('div', { class: 'notice', text: '网页版无法读取系统级按键与软件使用数据，因此统计范围为页面内行为。' }));
-      card3.appendChild(el('div', { style: 'margin-top:10px' }, [
-        el('button', { class: 'btn', text: '清空统计', onclick: () => { this.stats.clear(); this.render(); toast('已清空'); } }),
-      ]));
-      b.appendChild(card3);
-    }
+  buildSummary() {
+    const spec = [['01', '当前角色', 'CHAR'], ['02', '形象高度', 'PX', 'PX'], ['03', '气泡', 'ENABLED', 'PX'], ['04', '音量', 'VOL', '%'], ['05', '主题色', 'ACCENT']];
+    this.sum = spec.map(([no, name, code, unit], i) => {
+      const v = el('span', { class: i === 4 ? 'sum-v sum-hex' : 'sum-v' }, '—');
+      const u = unit ? el('span', { class: 'sum-u' }, unit) : null;
+      const note = el('div', { class: 'sum-note' });
+      const gauge = i < 4 ? el('div', { class: 'gauge' }, Array.from({ length: 6 }, () => el('i'))) : null;
+      const val = i === 4 ? el('div', { class: 'sum-val' }, el('i', { class: 'sum-sw' }), v) : el('div', { class: 'sum-val' }, v, u);
+      const node = el('div', { class: 'sum-row' },
+        el('div', { class: 'sum-top' }, el('span', { class: 'sum-no' }, no), el('span', { class: 'sum-name' }, name), el('span', { class: 'eyebrow sum-code' }, code)),
+        val, note, gauge);
+      return { node, v, u, note, gauge };
+    });
+    if (this.sum[4]) this.sum[4].note.textContent = '当前项 │ 主按钮 │ 滑块';
+    this.sum[1].note.textContent = '屏幕上从头顶到脚底';
+    return el('div', { class: 'sum' },
+      el('div', { class: 'colhead' }, el('i', { class: 'bar' }), el('span', { class: 'eyebrow' }, 'SUMMARY'), el('span', { class: 'eyebrow r' }, '05')),
+      el('div', { class: 'sum-list' }, this.sum.map(r => r.node)),
+      el('div', { class: 'sum-foot' }, el('span', { class: 'eyebrow', style: { opacity: 0.6 } }, 'Q PET ' + VERSION), el('span', { class: 'eyebrow', style: { opacity: 0.4 } }, 'LOCAL ONLY')));
   }
 
-  global.QPet = global.QPet || {};
-  global.QPet.SettingsPanel = SettingsPanel;
-  global.QPet.el = el;
-  global.QPet.toast = function (msg) {
-    const t = document.getElementById('toast');
-    if (!t) return;
-    t.textContent = msg;
-    t.classList.add('show');
-    clearTimeout(global.__toastT);
-    global.__toastT = setTimeout(() => t.classList.remove('show'), 2200);
-  };
-})(window);
+  buildHub() {
+    this.hubImg = el('img', { alt: '', draggable: 'false' });
+    this.plate = el('div', { class: 'hub-plate' }, this.hubImg);
+    this.vp = el('div', { class: 'hub-vp', title: '滚轮缩放立绘，按住左键拖动，双击复位' }, this.plate);
+    this.zoomLbl = el('span', { class: 'hub-zoom' }, '×1.0');
+    this.hubRun = el('b');
+    this.hubPos = el('b');
+    this.hubShow = button('在桌面隐藏', 'primary', () => this.toggleShow());
+    const hub = el('div', { class: 'hub' }, this.vp,
+      el('div', { class: 'hub-top' }, el('span', { class: 'eyebrow' }, '// CURRENT CHARACTER'), this.zoomLbl),
+      el('div', { class: 'hub-bot' },
+        el('span', { class: 'hub-state', style: { whiteSpace: 'pre' } }, '状态 ', this.hubRun, '    位置 ', this.hubPos),
+        this.hubShow,
+        button('查看原图', 'secondary', () => window.open(this.ch().imageUrl, '_blank', 'noopener'))));
+
+    const vp = this.vp;
+    vp.addEventListener('wheel', e => {
+      e.preventDefault();
+      let z = this.z * (e.deltaY < 0 ? 1.1 : 1 / 1.1);
+      z = Math.max(0.4, Math.min(3, z));
+      if (Math.abs(z - 1) < 0.06) z = 1;
+      this.z = z;
+      this.clampPan();
+      this.applyZoom(false);
+    }, { passive: false });
+    vp.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || this.z <= 1) return;
+      const sx = e.clientX, sy = e.clientY, ox = this.panX, oy = this.panY;
+      vp.setPointerCapture(e.pointerId);
+      vp.classList.add('drag');
+      const mv = ev => { this.panX = ox + ev.clientX - sx; this.panY = oy + ev.clientY - sy; this.clampPan(); this.applyZoom(false); };
+      const up = () => { vp.classList.remove('drag'); vp.removeEventListener('pointermove', mv); vp.removeEventListener('pointerup', up); };
+      vp.addEventListener('pointermove', mv);
+      vp.addEventListener('pointerup', up);
+    });
+    vp.addEventListener('dblclick', () => { this.z = 1; this.panX = 0; this.panY = 0; this.applyZoom(true); });
+    return hub;
+  }
+  clampPan() {
+    if (this.z <= 1) { this.panX = 0; this.panY = 0; return; }
+    const r = this.vp.getBoundingClientRect();
+    const mx = r.width * (this.z - 1) / 2, my = r.height * (this.z - 1) / 2;
+    this.panX = Math.max(-mx, Math.min(mx, this.panX));
+    this.panY = Math.max(-my, Math.min(my, this.panY));
+  }
+  applyZoom(anim) {
+    this.plate.style.transition = anim ? 'transform 200ms cubic-bezier(.2,.8,.2,1)' : 'none';
+    this.plate.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.z})`;
+    this.zoomLbl.textContent = '×' + this.z.toFixed(1);
+  }
+
+  buildContent() {
+    this.pbNo = el('span', { class: 'pb-no' });
+    this.pbName = el('span', { class: 'pb-name' });
+    this.pbChar = el('span', { class: 'pb-v' });
+    this.pbSize = el('span', { class: 'pb-v' });
+    this.pbFrames = el('span', { class: 'pb-v' });
+    this.pbStateTx = el('span');
+    this.pbState = el('span', { class: 'pb-state' }, this.pbStateTx, el('i'));
+    const vd = () => el('i', { class: 'vd' });
+    const pbar = el('div', { class: 'pbar' },
+      el('span', { class: 'eyebrow' }, 'SECTION'), this.pbNo, this.pbName, vd(),
+      el('span', { class: 'eyebrow' }, 'CHAR'), this.pbChar, vd(),
+      el('span', { class: 'eyebrow' }, 'H'), this.pbSize, vd(),
+      el('span', { class: 'eyebrow' }, 'FRAMES'), this.pbFrames,
+      this.pbState);
+    this.scroll = el('div', { class: 'scroll' });
+    this.chipDirty = el('span', { class: 'chip-dirty', hidden: true }, 'UNSAVED');
+    this.chipSaved = el('span', { class: 'chip-saved', hidden: true });
+    this.saveBtn = button('保存更改', 'primary', () => this.save());
+    const bbar = el('div', { class: 'bbar' },
+      button('退出桌宠', 'ghost', () => this.quit()),
+      this.chipDirty, this.chipSaved,
+      el('div', { class: 'r' }, button('取消', 'secondary', () => this.close()), this.saveBtn));
+    return el('div', { class: 'content' }, pbar, this.scroll, bbar);
+  }
+
+  buildTiles() {
+    this.tileBtns = TILES.map(([key, t1, t2], i) => el('button', {
+      class: 'tile', type: 'button', 'data-key': key,
+      onclick: () => this.go(this.page === key ? null : key),
+    }, el('span', { class: 'in' },
+      el('span', { class: 'no' }, pad2(i + 1)),
+      el('span', { class: 'ic', html: svg(ICONS[i], 16, 1.3) }),
+      el('span', { class: 'tt' }, el('div', { class: 't1' }, t1), el('div', { class: 't2' }, t2)),
+      el('span', { class: 'ar', html: ARROW }))));
+    return el('div', { class: 'tiles' },
+      el('div', { class: 'colhead' }, el('span', { class: 'eyebrow' }, 'SECTIONS'), el('span', { class: 'eyebrow r' }, '08')),
+      el('div', { class: 'tile-list' }, this.tileBtns));
+  }
+
+  // ---------------- 窗口 ----------------
+  show(page) {
+    if (!this.open) {
+      this.open = true;
+      this.draft = clone(this.saved);
+      this.lastBubH = this.saved.bubbleH > 0 ? this.saved.bubbleH : this.lastBubH;
+      applyTheme(this.saved.themeColor);
+      this.z = 1; this.panX = 0; this.panY = 0; this.applyZoom(false);
+      this.chipSaved.hidden = true;
+      this.win.hidden = false;
+      this.place();
+      this.go(page || null);
+    } else {
+      this.win.hidden = false;
+      if (page !== undefined && page !== this.page) this.go(page);
+    }
+    this.min = false;
+    this.layer.append(this.win);
+    this.taskBtn.hidden = false;
+    this.taskBtn.classList.add('on');
+    this.syncCover();
+  }
+  // 手机上窗口铺满，桌宠会挡住设置，这时让窗口压在桌宠上面
+  syncCover() { document.body.classList.toggle('win-cover', this.open && !this.min && this.win.classList.contains('phone')); }
+  hide() {
+    closePop();
+    if (this.pageCtl && this.pageCtl.dispose) this.pageCtl.dispose();
+    this.pageCtl = null;
+    this.open = false;
+    this.min = false;
+    this.win.hidden = true;
+    this.taskBtn.hidden = true;
+    this.taskBtn.classList.remove('on');
+    this.syncCover();
+  }
+  minimize() {
+    closePop();
+    this.min = true;
+    this.win.hidden = true;
+    this.taskBtn.classList.remove('on');
+    this.syncCover();
+  }
+  taskClick() {
+    if (!this.open) this.show();
+    else if (this.min) this.show();
+    else this.minimize();
+  }
+  toggleMax() {
+    this.max = !this.max;
+    this.maxBtn.innerHTML = svg(this.max ? CAP_ICONS.restore : CAP_ICONS.max, 14, 1);
+    this.maxBtn.title = this.max ? '还原' : '最大化';
+    this.place();
+  }
+  place() {
+    const d = this.deskSize();
+    const full = this.max || d.w < 900 || d.h < 560;
+    this.win.classList.toggle('max', full);
+    const ww = full ? d.w : Math.min(1180, d.w - 24);
+    this.win.classList.toggle('narrow', ww < 1000);
+    this.win.classList.toggle('phone', ww < 700);
+    this.syncCover();
+    if (full) {
+      Object.assign(this.win.style, { left: '0px', top: '0px', width: d.w + 'px', height: d.h + 'px' });
+      this.win.classList.toggle('dense', d.h < 660);
+      return;
+    }
+    const w = Math.min(1180, d.w - 24), h = Math.min(780, d.h - 24);
+    if (!this.rect) this.rect = { x: Math.round((d.w - w) / 2), y: Math.max(12, Math.round((d.h - h) / 2)) };
+    this.rect.w = w; this.rect.h = h;
+    this.clampRect();
+    this.applyRect();
+    this.win.classList.toggle('dense', h < 660);
+  }
+  clampRect() {
+    const d = this.deskSize(), r = this.rect;
+    r.x = Math.max(-(r.w - 160), Math.min(d.w - 160, r.x));
+    r.y = Math.max(0, Math.min(d.h - 52, r.y));
+  }
+  applyRect() {
+    const r = this.rect;
+    Object.assign(this.win.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+  }
+
+  isDirty() { return stable(strip(this.draft)) !== stable(strip(this.saved)); }
+
+  async close() {
+    closePop();
+    if (this.isDirty()) {
+      const discard = await ask({
+        title: '还有没保存的更改',
+        body: '你改了设置但还没点「保存更改」。现在关掉的话，这些改动不会生效。',
+        ok: '不保存退出', cancel: '继续编辑', danger: true,
+      });
+      if (!discard) return;
+    }
+    this.draft = clone(this.saved);
+    applyTheme(this.saved.themeColor);
+    this.hide();
+  }
+
+  async quit() {
+    const ok = await ask({
+      title: '让她先休息一下？',
+      body: '桌宠会从桌面上消失，没保存的更改也不会生效。\n点右下角托盘图标，可以随时叫她回来。',
+      ok: '退出桌宠', cancel: '再陪一会儿', danger: true,
+    });
+    if (!ok) return;
+    this.draft = clone(this.saved);
+    applyTheme(this.saved.themeColor);
+    this.hide();
+    this.onQuit && this.onQuit();
+  }
+
+  toggleShow() {
+    const shown = this.pet.running && this.draft.showPet;
+    if (!this.pet.running) { this.pet.setRunning(true); this.setLive('showPet', true); return; }
+    this.setLive('showPet', !shown);
+  }
+
+  async save() {
+    this.saveBtn.textContent = '应用中…';
+    this.saveBtn.disabled = true;
+    this.saved = clone(this.draft);
+    saveCfg(this.saved);
+    try { await this.pet.apply(clone(this.saved)); } finally {
+      this.saveBtn.textContent = '保存更改';
+      this.saveBtn.disabled = false;
+    }
+    const ch = this.ch();
+    let note = `已保存并应用  │  ${ch.name}  │  ${this.H()}px  │  音量 ${this.saved.volume}%`;
+    if (!this.pet.visible) note += '  │  桌宠当前隐藏';
+    this.chipSaved.textContent = note;
+    this.chipSaved.hidden = false;
+    clearTimeout(this.savedTimer);
+    this.savedTimer = setTimeout(() => { this.chipSaved.hidden = true; }, 6000);
+    this.refresh();
+  }
+
+  // ---------------- 导航 ----------------
+  go(key) {
+    closePop();
+    this.page = key;
+    this.win.classList.toggle('paged', !!key);
+    for (const b of this.tileBtns) b.classList.toggle('on', b.dataset.key === key);
+    this.back.hidden = !key;
+    if (key) this.renderPage(false);
+    else if (this.pageCtl) { this.pageCtl.dispose && this.pageCtl.dispose(); this.pageCtl = null; this.scroll.replaceChildren(); }
+    this.refresh();
+  }
+
+  renderPage(keepScroll) {
+    if (this.pageCtl && this.pageCtl.dispose) this.pageCtl.dispose();
+    const m = META[this.page];
+    const top = this.scroll.scrollTop;
+    const ctl = PAGES[this.page](this);
+    this.pageCtl = ctl;
+    const body = el('div', { class: 'body' }, ctl.el);
+    [...body.children].forEach((c, i) => { c.style.animationDelay = (Math.min(i, 6) * 45) + 'ms'; });
+    const page = el('div', { class: 'page' },
+      el('div', { class: 'ph' }, el('span', { class: 'h1' }, m.h1), el('span', { class: 'eyebrow' }, m.eyebrow)),
+      el('div', { class: 'psub' }, m.sub),
+      el('div', { class: 'prule' }),
+      body);
+    if (keepScroll) { page.style.animation = 'none'; [...body.children].forEach(c => { c.style.animation = 'none'; }); }
+    this.scroll.replaceChildren(page);
+    this.scroll.scrollTop = keepScroll ? top : 0;
+    if (ctl.mounted) ctl.mounted();
+  }
+
+  // ---------------- 刷新 ----------------
+  refresh() {
+    if (!this.open) return;
+    const d = this.draft, ch = this.ch(), H = this.H();
+    const voices = ch.voices.length, frames = this.frameCount();
+    this.setVal(this.sum[0], ch.name);
+    this.sum[0].note.textContent = `${voices} 条语音 │ ${frames} 帧动画 │ 立绘 1`;
+    this.gauge(this.sum[0], ((voices > 0 ? 2 : 0) + (frames ? 2 : 0) + 2) / 6);
+    this.setVal(this.sum[1], String(H));
+    this.gauge(this.sum[1], (H - 180) / 220);
+    const bh = d.bubbleH | 0;
+    this.setVal(this.sum[2], bh > 0 ? String(bh) : '已关闭');
+    this.sum[2].u.hidden = bh <= 0;
+    this.sum[2].note.textContent = '字体 │ 颜色 │ 频率';
+    this.gauge(this.sum[2], bh > 0 ? bh / 220 : 0);
+    this.setVal(this.sum[3], String(d.volume));
+    this.sum[3].note.textContent = d.volume > 0 ? '台词与音效' : '静音：只做动画';
+    this.gauge(this.sum[3], d.volume / 100);
+    this.setVal(this.sum[4], '#' + String(d.themeColor).toUpperCase());
+
+    if (this.hubImg.dataset.src !== ch.imageUrl) { this.hubImg.src = ch.imageUrl; this.hubImg.dataset.src = ch.imageUrl; }
+    this.capChar.textContent = ch.name;
+    this.capVoice.textContent = String(voices);
+
+    if (this.page) {
+      const i = TILES.findIndex(t => t[0] === this.page);
+      this.pbNo.textContent = pad2(i + 1);
+      this.pbName.textContent = TILES[i][1];
+      this.pbChar.textContent = ch.name;
+      this.pbSize.textContent = `${H} px`;
+      this.pbFrames.textContent = String(frames);
+    }
+    this.refreshPet();
+    this.refreshDirty();
+  }
+  refreshPet() {
+    const p = this.pet, vis = p.visible;
+    this.capDot.classList.toggle('run', vis);
+    this.capRun.textContent = vis ? 'RUN' : 'HIDDEN';
+    const pos = p.pos ? `${p.pos.x} │ ${p.pos.y}` : '—';
+    this.capPos.textContent = pos;
+    this.hubRun.textContent = vis ? 'RUNNING' : '已隐藏';
+    this.hubPos.textContent = pos;
+    this.hubShow.textContent = p.running && this.draft.showPet ? '在桌面隐藏' : '在桌面显示';
+    if (this.pageCtl && this.pageCtl.petChanged) this.pageCtl.petChanged();
+  }
+  refreshDirty() {
+    const dirty = this.isDirty();
+    this.chipDirty.hidden = !dirty;
+    if (dirty) this.chipSaved.hidden = true;
+    this.pbState.classList.toggle('dirty', dirty);
+    this.pbStateTx.textContent = dirty ? '未保存' : '已保存';
+  }
+  setVal(r, text) {
+    if (r.v.textContent === text) return;
+    r.v.textContent = text;
+    r.v.classList.remove('bump');
+    void r.v.offsetWidth;
+    r.v.classList.add('bump');
+  }
+  gauge(r, pct) {
+    pct = Math.max(0, Math.min(1, pct || 0));
+    [...r.gauge.children].forEach((c, i) => {
+      const cover = Math.max(0, Math.min(1, pct * 6 - i));
+      c.style.transitionDelay = (i * 26) + 'ms';
+      c.style.background = cover > 0.02 ? 'var(--accent)' : '';
+      c.style.opacity = cover > 0.02 && cover < 1 ? String(0.32 + 0.6 * cover) : '1';
+    });
+  }
+}

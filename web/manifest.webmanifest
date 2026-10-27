@@ -1,0 +1,14 @@
+{
+  "name": "Q Pet",
+  "short_name": "Q Pet",
+  "description": "Q Pet，将你喜欢的角色放到桌面上。网页版。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#E1E5EA",
+  "theme_color": "#E1E5EA",
+  "icons": [
+    { "src": "assets/icon.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
