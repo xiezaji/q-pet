@@ -252,8 +252,7 @@ static partial class Settings
             }
             else
             {
-                Dlg.Info("替换失败", string.IsNullOrEmpty(err)
-                    ? "anim_custom.py 执行失败，请确认 Python + Pillow 可用。" : err, "好");
+                Dlg.Info("替换失败", string.IsNullOrEmpty(err) ? "这个文件读不出画面，换一张图或一个 GIF 再试。" : err, "好");
             }
         }
 
@@ -270,32 +269,19 @@ static partial class Settings
             }
             else
             {
-                Dlg.Info("恢复失败", string.IsNullOrEmpty(err) ? "anim_custom.py 执行失败。" : err, "好");
+                Dlg.Info("恢复失败", string.IsNullOrEmpty(err) ? "按立绘重新生成失败。" : err, "好");
             }
         }
 
+        // apply / reset 都在进程内做完（SpriteGen.cs）：原先调 anim_custom.py，
+        // 没有 Python + Pillow 的用户点这两个按钮只会看到「执行失败」。
         static bool RunAnimCustom(string cmd, string packDir, string slot, string src, out string err)
         {
             err = "";
             try
             {
-                string args = "anim_custom.py " + cmd + " --pack \"" + packDir + "\" --slot " + slot;
-                if (cmd == "apply") args += " --src \"" + src + "\"";
-                var psi = new ProcessStartInfo(FindPython(), args)
-                {
-                    WorkingDirectory = Here, UseShellExecute = false, CreateNoWindow = true,
-                    RedirectStandardOutput = true, RedirectStandardError = true,
-                    WindowStyle = ProcessWindowStyle.Hidden
-                };
-                Process p = Process.Start(psi);
-                string so = p.StandardOutput.ReadToEnd();
-                string se = p.StandardError.ReadToEnd();
-                p.WaitForExit(120000);
-                if (p.ExitCode != 0)
-                {
-                    err = (se + "\n" + so).Trim();
-                    return false;
-                }
+                if (cmd == "apply") QSprite.ApplyCustom(packDir, slot, src);
+                else QSprite.ResetSlot(packDir, slot);
                 return true;
             }
             catch (Exception ex) { err = ex.Message; LogErr("customanim", ex); return false; }

@@ -16,18 +16,22 @@ param(
     [switch]$AllChars
 )
 $ErrorActionPreference = 'Stop'
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$here = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)   # %~dp0\.. -> 仓库根目录
 Set-Location $here
 
 function Fail($msg) { Write-Host "✗ $msg" -ForegroundColor Red; exit 1 }
 
 # ---------- 1. 源码文件检查 ----------
-$src = @('pet.cs', 'Program.cs', 'Core.cs', 'Settings.cs', 'Ui.cs', 'Bubble.cs', 'Voice.cs',
-         'PageAnim.cs', 'PageImport.cs', 'PageStats.cs', 'PageAbout.cs', 'CharMap.cs', 'KeyStats.cs',
-         'AppTreemap.cs', 'Pet.csproj', 'PetSettings.csproj', 'Tests.csproj', 'build.cmd',
-         'pet.ico', 'pet.png', 'LICENSE', 'NOTICE.md', 'README.md', 'make-pet-config.ps1',
-         'pet-config.txt', 'pet-overrides.txt', 'start-pet.cmd', 'start-pet.vbs', 'run-pet-settings.cmd')
-foreach ($f in $src) { if (-not (Test-Path (Join-Path $here $f))) { Fail "缺少 $f" } }
+# 仓库布局（2026-10-29 起）：C# 源码在 src\、脚本在 tools\，根目录只留用户要双击的东西
+$rootFiles = @('LICENSE', 'NOTICE.md', 'README.md', 'pet.ico', 'pet.png', 'pet-placeholder.png',
+               'pet-config.txt', 'pet-overrides.txt', 'start-pet.cmd', 'start-pet.vbs', 'run-pet-settings.cmd')
+$srcFiles  = @('pet.cs', 'Program.cs', 'Core.cs', 'Settings.cs', 'Ui.cs', 'Bubble.cs', 'Voice.cs',
+               'PageAnim.cs', 'PageImport.cs', 'PageStats.cs', 'PageAbout.cs', 'CharMap.cs', 'KeyStats.cs',
+               'AppTreemap.cs', 'SpriteGen.cs', 'Pet.csproj', 'PetSettings.csproj', 'Tests.csproj')
+$toolFiles = @('build.cmd', 'xamlgen.py', 'make-pet-config.ps1')
+foreach ($f in $rootFiles) { if (-not (Test-Path (Join-Path $here $f))) { Fail "缺少 $f" } }
+foreach ($f in $srcFiles)  { if (-not (Test-Path (Join-Path $here ('src\' + $f)))) { Fail "缺少 src\$f" } }
+foreach ($f in $toolFiles) { if (-not (Test-Path (Join-Path $here ('tools\' + $f)))) { Fail "缺少 tools\$f" } }
 
 # ---------- 2. 当前角色 ----------
 if ($Char) {
@@ -48,7 +52,10 @@ $stage = Join-Path $here (Join-Path $OutDir '_stage_src')
 if ([System.IO.Directory]::Exists($stage)) { [System.IO.Directory]::Delete($stage, $true) }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
-foreach ($f in $src) { Copy-Item (Join-Path $here $f) (Join-Path $stage $f) -Force }
+foreach ($d in @('src', 'tools')) { New-Item -ItemType Directory -Path (Join-Path $stage $d) -Force | Out-Null }
+foreach ($f in $rootFiles) { Copy-Item (Join-Path $here $f) (Join-Path $stage $f) -Force }
+foreach ($f in $srcFiles)  { Copy-Item (Join-Path $here ('src\' + $f)) (Join-Path $stage ('src\' + $f)) -Force }
+foreach ($f in $toolFiles) { Copy-Item (Join-Path $here ('tools\' + $f)) (Join-Path $stage ('tools\' + $f)) -Force }
 
 # 包里的角色必须和配置一致：-Char 指定别的角色时改写 charDir
 $cfgChar = 'chars\' + $charName
@@ -64,10 +71,8 @@ foreach ($cfgName in @('pet-config.txt', 'pet-overrides.txt')) {
     [System.IO.File]::WriteAllLines($cfgPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
 }
 
-# 单测、内置字体、XAML 校验脚本
+# 单测与内置字体（xamlgen.py 已在 tools\ 里，随上面一起复制）
 foreach ($d in @('tests', 'Fonts')) { Copy-Item (Join-Path $here $d) (Join-Path $stage $d) -Recurse -Force }
-New-Item -ItemType Directory -Path (Join-Path $stage '_ref') -Force | Out-Null
-Copy-Item (Join-Path $here '_ref\xamlgen.py') (Join-Path $stage '_ref\xamlgen.py') -Force
 
 # 角色：默认只带当前角色
 New-Item -ItemType Directory -Path (Join-Path $stage 'chars') -Force | Out-Null
@@ -95,8 +100,9 @@ Q Pet · 在你自己电脑上编译运行
 把整个压缩包解压到一个普通目录，例如 D:\QPet。
 不要放在 C:\Program Files（那里没有写权限），也不要在压缩包预览里双击。
 
-【第三步：双击 build.cmd】
-它会依次编译 Pet.exe 和 PetSettings.exe，并自动把产物复制到当前目录。
+【第三步：双击 tools\build.cmd】
+它会依次校验界面、跑单元测试、编译 Pet.exe 和 PetSettings.exe，
+并自动把产物复制到上一层（也就是你解压出来的这个目录）。
 看到 [OK] Done 就好了（第一次会联网从 NuGet 拉一个很小的引用程序集包）。
 
 【第四步：双击 Pet.exe】

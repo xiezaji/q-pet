@@ -9,6 +9,11 @@
 槽位：idle / press / click / drag
 帧序固定为 待机 → 按键 → 点击 → 拖动；替换某一槽后会重新拼接 frames.bin 并更新计数。
 """
+# ⚠ 运行时不走这个文件了（2026-10-29）：设置面板的「新建角色 / 改大小 / 换动画」
+# 已经改成进程内的 C# 实现（SpriteGen.cs），因为普通用户不会装 Python + Pillow。
+# 这份脚本只作为**批量 / 开发**工具保留 —— 改动画数学时请同时改 SpriteGen.cs，
+# 两边输出必须能互相替换（frames.bin 格式完全一致）。
+
 import argparse
 import json
 import os

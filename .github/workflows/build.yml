@@ -1,0 +1,45 @@
+name: build
+
+# 桌面端的最小闸门：XAML 校验 → 纯函数单测 → 两个 exe 能编出来。
+# 为什么需要它：XAML 写在 Settings.cs 的字符串里，编译永远 0 错误，
+# 只有运行时 XamlReader.Parse 才炸；单测以前也只有本地双击 build.cmd 才会跑。
+# web/ 的改动由 pages.yml 负责，这里不重复构建。
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'web/**'
+      - 'docs/**'
+      - '**/*.md'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: XAML 校验
+        run: python tools/xamlgen.py check
+
+      - name: 单元测试
+        run: |
+          dotnet build src/Tests.csproj -c Release -nologo
+          .\build\tests\Tests.exe
+
+      - name: 编译 Pet.exe
+        run: dotnet build src/Pet.csproj -c Release -nologo
+
+      - name: 编译 PetSettings.exe
+        run: dotnet build src/PetSettings.csproj -c Release -nologo
+
+      - name: 确认产物存在
+        run: |
+          if (!(Test-Path build\pet\Pet.exe)) { throw 'Pet.exe 没有生成' }
+          if (!(Test-Path build\settings\PetSettings.exe)) { throw 'PetSettings.exe 没有生成' }

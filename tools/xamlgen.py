@@ -1,8 +1,8 @@
 """XAML <-> C# verbatim string 往返工具。
 
 用法：
-  python _ref/xamlgen.py export   # Settings.cs -> _ref/xaml.xaml（反解 "" -> "）
-  python _ref/xamlgen.py inject   # _ref/xaml.xaml -> Settings.cs（转义 " -> ""）
+  python tools/xamlgen.py export  # src/Settings.cs -> _ref/xaml.xaml（反解 "" -> "）
+  python tools/xamlgen.py inject  # _ref/xaml.xaml -> src/Settings.cs（转义 " -> ""）
 
 为何要这么绕：XAML 写在 C# verbatim 字符串里，字符串内不能出现半角双引号，
 历史上因此连炸 5 次（编译永远 0 错误，只有运行时解析才炸）。
@@ -15,7 +15,7 @@ import re
 import xml.etree.ElementTree as ET
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CS = os.path.join(ROOT, "Settings.cs")
+CS = os.path.join(ROOT, "src", "Settings.cs")
 XAML = os.path.join(ROOT, "_ref", "xaml.xaml")
 
 MARK_START = 'const string XamlText = @"'
@@ -105,7 +105,7 @@ def inject():
     a, b = span(src)
     new = src[:a] + body + src[b:]
     bom = write_cs(new)
-    print("inject -> Settings.cs (%s)" % ("BOM" if bom else "no BOM"))
+    print("inject -> src/Settings.cs (%s)" % ("BOM" if bom else "no BOM"))
 
 
 if __name__ == "__main__":

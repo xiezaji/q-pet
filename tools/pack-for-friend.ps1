@@ -20,14 +20,20 @@ param(
     [switch]$AllChars
 )
 $ErrorActionPreference = 'Stop'
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$here = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)   # %~dp0\.. -> 仓库根目录
 Set-Location $here
 
 function Fail($msg) { Write-Host "✗ $msg" -ForegroundColor Red; exit 1 }
 
 # ---------- 1. 必带文件检查 ----------
-$must = @('Pet.exe', 'PetSettings.exe', 'pet-config.txt', 'pet-overrides.txt', 'pet.png', 'pet.ico')
-foreach ($f in $must) { if (-not (Test-Path (Join-Path $here $f))) { Fail "缺少 $f，先编译并复制到根目录" } }
+# pet-placeholder.png 是「角色立绘读不到」时的兜底图（PageImport.cs / Settings.cs 会读它），
+# 以前漏了它，对方机器上角色卡片会空白。
+$must = @('Pet.exe', 'PetSettings.exe', 'pet-config.txt', 'pet-overrides.txt', 'pet.png', 'pet.ico', 'pet-placeholder.png')
+foreach ($f in $must) {
+    if (-not (Test-Path (Join-Path $here $f))) {
+        Fail ("缺少 " + $f + "。先在仓库根目录双击 tools\build.cmd 编译一次，产物会自动复制到根目录")
+    }
+}
 
 # ---------- 2. 当前角色 ----------
 if ($Char) {

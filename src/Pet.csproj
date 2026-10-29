@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- 桌宠本体：net48 / WinExe，无 NuGet 依赖。
-       编译：dotnet build Pet.csproj -c Release
-       产物：build\pet\Pet.exe（再复制到根目录） -->
+       编译：dotnet build src/Pet.csproj -c Release（在仓库根目录执行）
+       产物：build\pet\Pet.exe（再复制到仓库根目录） -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
@@ -23,8 +23,8 @@
     <Copyright>MIT License · 2026 Q Pet contributors</Copyright>
     <DebugType>none</DebugType>
     <Optimize>true</Optimize>
-    <ApplicationIcon>pet.ico</ApplicationIcon>
-    <OutputPath>build\pet\</OutputPath>
+    <ApplicationIcon>..\pet.ico</ApplicationIcon>
+    <OutputPath>..\build\pet\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>

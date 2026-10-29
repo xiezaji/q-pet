@@ -2,7 +2,7 @@
 # 值来源优先级：pet-overrides.txt（设置面板写的） > 角色包 char.json > 这里的默认值
 $ErrorActionPreference = 'Continue'
 $PSNativeCommandUseErrorActionPreference = $false
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$here = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)   # %~dp0\.. -> 仓库根目录
 
 # ---------- 设置面板的覆盖值 ----------
 # 解析覆盖文件：既支持「一行一个 key=value」，也容忍整份被写成一整行。

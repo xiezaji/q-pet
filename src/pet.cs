@@ -252,7 +252,9 @@ namespace PetApp
         static Graphics _g;
         static Font _font;
         static StringFormat _sf, _sfTop;
-        const int FRAME_MS = 33;
+        // 帧间隔：由 frames.txt 的 fps 决定（以前写死 33ms，而 fps 那个键写了从来没人读）。
+        // 30fps ⇒ 33ms，和旧版完全一致；换个 fps 的角色包才真的按它播。
+        static int _frameMs = 33;      // 兜底值；真实值由 frames.txt 的 fps 决定（QCore.FramesMeta.FrameMs）
 
         static int Now { get { return Environment.TickCount; } }
 
@@ -604,7 +606,7 @@ namespace PetApp
 
             if (_phase == "squash")
             {
-                int step = (int)((Now - _phaseStart) * speed / FRAME_MS);
+                int step = (int)((Now - _phaseStart) * speed / _frameMs);
                 int idx = 1 + step;                       // 1..deep
                 if (idx >= deep) { idx = deep; _phase = "hold"; _phaseStart = Now; }
                 _frameIndex = baseIdx + Math.Min(idx, count - 1);
@@ -616,7 +618,7 @@ namespace PetApp
             }
             else if (_phase == "rebound")
             {
-                int step = (int)((Now - _phaseStart) * speed / FRAME_MS);
+                int step = (int)((Now - _phaseStart) * speed / _frameMs);
                 int idx = deep + 1 + step;                // deep+1..count-1
                 if (idx >= count - 1) { _frameIndex = baseIdx + (count - 1); _phase = "idle"; }
                 else _frameIndex = baseIdx + idx;
@@ -2211,7 +2213,11 @@ namespace PetApp
             if (string.IsNullOrEmpty(cd)) return;
             if (!Path.IsPathRooted(cd)) cd = Path.Combine(_baseDir, cd);
             Dictionary<string, string> m = ReadCharJson(cd);
-            if (m.Count == 0) { Status("角色包无效（缺 char.json）: " + cd); return; }
+            if (m.Count == 0)
+                // 以前这里只写一行日志就 return：于是桌宠继续用 pet-config.txt 里的旧路径，
+                // 安静地显示成**另一个角色**（配置里写着新角色，屏幕上却是旧的），用户根本查不出来。
+                throw new Exception("角色包无效：" + Path.Combine(cd, "char.json") + " 读不到"
+                    + "\n\n角色目录可能被删了或搬走了。请打开 PetSettings.exe 重新选一个角色。");
 
             foreach (string k in new string[] { "frames", "meta", "lines", "voicelines" })
             {
@@ -2311,25 +2317,30 @@ namespace PetApp
             ApplyCharPack();
             CleanVolCache();                   // 源语音已不在（换角色/删素材）的音量缓存，这次就清掉
 
+            // ---- 动画帧清单：解析和校验都在 QCore.ParseFramesMeta（Core.cs）里，可单测 ----
             string metaPath = Cfg("meta", "");
             if (string.IsNullOrEmpty(metaPath) || !File.Exists(metaPath))
-                throw new Exception("找不到动画帧清单 meta=" + metaPath);
-            foreach (string raw in File.ReadAllLines(metaPath))
-            {
-                string line = raw.Trim();
-                int eq = line.IndexOf('=');
-                if (eq <= 0) continue;
-                string k = line.Substring(0, eq).Trim(), v = line.Substring(eq + 1).Trim();
-                if (k == "w") _w = int.Parse(v);
-                else if (k == "h") _h = int.Parse(v);
-                else if (k == "idle") _idleN = int.Parse(v);
-                else if (k == "press") _pressN = int.Parse(v);
-                else if (k == "click") _clickN = int.Parse(v);
-                else if (k == "drag") _dragN = int.Parse(v);
-            }
+                throw new Exception("找不到动画帧清单 meta=" + metaPath
+                    + "\n\n角色包不完整。请打开 PetSettings.exe 重新选一个角色。");
+            QCore.FramesMeta fm = QCore.ParseFramesMeta(File.ReadAllLines(metaPath));
+            if (!fm.IsOk)
+                throw new Exception(fm.Error + "\n\n角色包：" + metaPath
+                    + "\n请重新生成这个角色的动画（设置面板 → 形象与大小 → 保存更改）。");
+            _w = fm.W; _h = fm.H;
+            _idleN = fm.Idle; _pressN = fm.Press; _clickN = fm.Click; _dragN = fm.Drag;
+            _frameMs = fm.FrameMs;          // frames.txt 里的 fps 终于真的生效了（以前写死 33ms）
+
+            string framesPath = Cfg("frames", "");
+            if (string.IsNullOrEmpty(framesPath) || !File.Exists(framesPath))
+                throw new Exception("找不到精灵帧文件 frames=" + framesPath
+                    + "\n\n角色包不完整。请打开 PetSettings.exe 重新选一个角色。");
             _frameBytes = _w * _h * 4;
-            _frames = File.ReadAllBytes(Cfg("frames", ""));
-            if (_frames.Length < _frameBytes * TotalFrames) throw new Exception("精灵帧文件大小不足");
+            _frames = File.ReadAllBytes(framesPath);
+            long needBytes = fm.NeedBytes;   // long：不做 int 乘法，杜绝溢出
+            if (_frames.Length < needBytes)
+                throw new Exception("精灵帧文件大小不足：需要 " + needBytes + " 字节（"
+                    + _w + "x" + _h + " × " + fm.Total + " 帧），实际 " + _frames.Length
+                    + " 字节\n\nframes.bin 和 frames.txt 不匹配，请重新生成这个角色的动画。");
 
             _langCount = 0;
             while (_cfg.ContainsKey("lang" + _langCount + "name")) _langCount++;
@@ -2487,7 +2498,7 @@ namespace PetApp
                 _testWheelNextAt = Now + 3500;   // 等连击先弹出长文本气泡
             }
 
-            SetTimer(_hwnd, new IntPtr(1), FRAME_MS, IntPtr.Zero);
+            SetTimer(_hwnd, new IntPtr(1), (uint)_frameMs, IntPtr.Zero);
 
             MSG msg;
             while (GetMessageW(out msg, IntPtr.Zero, 0, 0) > 0)

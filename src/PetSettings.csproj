@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <!-- 设置面板：net48 / WPF（XAML 在代码里，无需 markup compile）。
-       编译：dotnet build PetSettings.csproj -c Release
-       产物：build\settings\PetSettings.exe（再复制到根目录） -->
+       编译：dotnet build src/PetSettings.csproj -c Release（在仓库根目录执行）
+       产物：build\settings\PetSettings.exe（再复制到仓库根目录） -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
@@ -23,8 +23,8 @@
     <Copyright>MIT License · 2026 Q Pet contributors</Copyright>
     <DebugType>none</DebugType>
     <Optimize>true</Optimize>
-    <ApplicationIcon>pet.ico</ApplicationIcon>
-    <OutputPath>build\settings\</OutputPath>
+    <ApplicationIcon>..\pet.ico</ApplicationIcon>
+    <OutputPath>..\build\settings\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
@@ -44,6 +44,9 @@
     <Compile Include="PageImport.cs" />
     <Compile Include="PageStats.cs" />
     <Compile Include="PageAbout.cs" />
+    <!-- 精灵帧生成（原 sprites.py / anim_custom.py 的 C# 版，2026-10-29）：
+         让「新建角色 / 改大小 / 换动画」不再需要 Python + Pillow。 -->
+    <Compile Include="SpriteGen.cs" />
     <Reference Include="System.Xaml" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="WindowsBase" />
@@ -54,12 +57,12 @@
     <!-- 界面用的宽体几何英文字（Saira，SIL OFL 1.1，宽度轴切到 125%）。
          作为 Resource 打进 exe，XAML 里用 pack://application:,,,/Fonts/#Saira Wide 引用；
          不能指望系统字体——系统里没有宽体几何字，会退回普通字体，这个风格的辨识度就没了。 -->
-    <Resource Include="Fonts\SairaWide-Medium.ttf" />
-    <Resource Include="Fonts\SairaWide-SemiBold.ttf" />
-    <Resource Include="Fonts\SairaWide-Bold.ttf" />
-    <Resource Include="Fonts\SairaWide-ExtraBold.ttf" />
+    <Resource Include="..\Fonts\SairaWide-Medium.ttf" />
+    <Resource Include="..\Fonts\SairaWide-SemiBold.ttf" />
+    <Resource Include="..\Fonts\SairaWide-Bold.ttf" />
+    <Resource Include="..\Fonts\SairaWide-ExtraBold.ttf" />
     <!-- 复合字体：拉丁用 Saira Wide、汉字用雅黑，见文件内注释 -->
-    <Resource Include="Fonts\QPetUI.CompositeFont" />
+    <Resource Include="..\Fonts\QPetUI.CompositeFont" />
   </ItemGroup>
   <ItemGroup>
     <!-- 同 Pet.csproj：没装 .NET Framework 4.8 开发包也能 dotnet build -->

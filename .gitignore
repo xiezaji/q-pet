@@ -5,16 +5,25 @@ bin/
 dist/
 __pycache__/
 *.pyc
+# 预编译产物只进 Releases，不进仓库：
+# 仓库放源码，GitHub 的「下载 ZIP」拿到的是源码而不是成品，
+# 成品统一从 https://github.com/xiezaji/q-pet/releases 下载（顺带能看下载量）。
 *.exe
-!/Pet.exe
-!/PetSettings.exe
 
 # runtime state
 *.pid
 *.log
 pet-pos.txt
 pet-status.txt
+pet-status-*.txt
 pet-stats*.txt
+
+# 配置是**本机状态**，不是源码：
+#   · pet-config.txt 由 make-pet-config.ps1 / 设置面板生成，Pet.exe 缺了会自动补一份最小配置
+#   · pet-overrides.txt 是设置面板写的覆盖值
+# 以前把它们提交进仓库，配上被忽略的 chars/<新角色>/ ⇒ 新克隆跑起来是「另一个角色」。
+pet-config.txt
+pet-overrides.txt
 pet-char-time.txt
 pet-settings-selftest.txt
 pet-showpet-test.txt
@@ -56,6 +65,5 @@ web/chk.png
 web/final.png
 web/shot*.png
 
-# XAML 工具与本地备份：只提交构建用的校验脚本
+# XAML 编辑用中间文件与本地备份（校验脚本已移到 tools/xamlgen.py）
 _ref/*
-!_ref/xamlgen.py

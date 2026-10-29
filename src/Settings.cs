@@ -4,7 +4,7 @@
 //       配色沿用原来的基准（#F3F3F3 底 / #FFFFFF 卡片 / #E4000000 正文 / #005FB8 主题蓝）；
 //       形状是直角与切角（切角 = 可点击）、1px 细线分区、// 眉标 + 粗体中文、宽体拉丁（Saira Wide）。
 //       主题色只做填充（导航当前项、开关、滑块、选中态），由 ApplyThemeColor 换肤。
-// 编译：dotnet build PetSettings.csproj -c Release   （产物 build\settings\PetSettings.exe）
+// 编译：dotnet build src/PetSettings.csproj -c Release   （产物 build\settings\PetSettings.exe）
 //       旧方式仍可用：csc /target:winexe /out:PetSettings.exe /r:PresentationFramework.dll
 //        /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Xaml.dll Settings.cs
 // 运行：双击 PetSettings.exe（或托盘双击）；--selftest 自检；--page N 直达某页（8 = 首页）；
@@ -251,6 +251,58 @@ static partial class Settings
     static void Main(string[] args)
     {
         Here = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
+
+        // 开发用：--genframes <图片> <高度> <输出目录> 直接出整套动画帧然后退出。
+        // 用途：在没有 Python/Pillow 的环境里和旧 sprites.py 的产物做逐像素比对（回归验证）。
+        for (int gi = 0; gi < args.Length; gi++)
+            if (args[gi] == "--genframes" && gi + 3 < args.Length)
+            {
+                string genOut = args[gi + 3], msg;
+                try
+                {
+                    int gh;
+                    if (!int.TryParse(args[gi + 2], out gh) || gh <= 0) gh = 300;
+                    // 可选 4 个幅度参数：--genframes img 200 out 1 1 2 1
+                    double[] am = { 1, 1, 1, 1 };
+                    for (int k = 0; k < 4 && gi + 4 + k < args.Length; k++)
+                        double.TryParse(args[gi + 4 + k], NumberStyles.Float, CultureInfo.InvariantCulture, out am[k]);
+                    QSprite.Pack gp = QSprite.Generate(args[gi + 1], gh, am[0], am[1], am[2], am[3]);
+                    QSprite.WritePack(genOut, gp, true);
+                    msg = "OK " + gp.W + "x" + gp.H + " " + gp.Total + " 帧";
+                }
+                catch (Exception ex) { msg = "FAIL " + ex.Message; }
+                try
+                {
+                    Directory.CreateDirectory(genOut);
+                    File.WriteAllText(Path.Combine(genOut, "_genframes.txt"), msg + "\r\n", new UTF8Encoding(false));
+                }
+                catch (Exception) { }
+                Environment.Exit(msg.StartsWith("OK") ? 0 : 1);
+                return;
+            }
+
+        // 开发用：--packtest <apply|reset> <角色包目录> <槽位> [源图] 验证自定义动画拼接
+        for (int pi = 0; pi < args.Length; pi++)
+            if (args[pi] == "--packtest" && pi + 3 < args.Length)
+            {
+                string cmd = args[pi + 1], dir = args[pi + 2], slot = args[pi + 3];
+                string msg;
+                try
+                {
+                    if (cmd == "apply") QSprite.ApplyCustom(dir, slot, pi + 4 < args.Length ? args[pi + 4] : "");
+                    else QSprite.ResetSlot(dir, slot);
+                    QSprite.Pack rp = QSprite.ReadPack(dir);
+                    msg = "OK idle=" + rp.Counts[0] + " press=" + rp.Counts[1]
+                        + " click=" + rp.Counts[2] + " drag=" + rp.Counts[3]
+                        + " custom=" + (QSprite.ReadManifest(dir).ContainsKey("custom" + char.ToUpperInvariant(slot[0]) + slot.Substring(1)) ? "1" : "0");
+                }
+                catch (Exception ex) { msg = "FAIL " + ex.Message; }
+                try { File.WriteAllText(Path.Combine(dir, "_packtest.txt"), msg + "\r\n", new UTF8Encoding(false)); }
+                catch (Exception) { }
+                Environment.Exit(msg.StartsWith("OK") ? 0 : 1);
+                return;
+            }
+
         bool selfTest = false;
         bool dialogTest = false;
         bool saveNoteTest = false;
@@ -2424,6 +2476,9 @@ static partial class Settings
         return "";
     }
 
+    // 动画生成失败的真实原因（设置面板直接显示给用户，不再只说「请确认 Python 可用」）
+    static string _framesErr = "";
+
     // 只重出这个角色自己的动画（写到 chars\<角色>\动画\），不再动全局帧
     static bool BuildPackFrames(CharEntry e, int size)
     {
@@ -2431,24 +2486,17 @@ static partial class Settings
         {
             string animDir = Path.Combine(e.Dir, "动画");
             Directory.CreateDirectory(animDir);
-            DateTime started = DateTime.Now;
-            var psi = new ProcessStartInfo(FindPython(),
-                "sprites.py --src \"" + e.Image + "\" --char-h " + size + " --out-dir \"" + animDir + "\""
-                + " --amp-idle " + e.AmpIdle.ToString("0.00", CultureInfo.InvariantCulture)
-                + " --amp-press " + e.AmpPress.ToString("0.00", CultureInfo.InvariantCulture)
-                + " --amp-click " + e.AmpClick.ToString("0.00", CultureInfo.InvariantCulture)
-                + " --amp-drag " + e.AmpDrag.ToString("0.00", CultureInfo.InvariantCulture))
-            {
-                WorkingDirectory = Here, UseShellExecute = false, CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden
-            };
-            Process pr = Process.Start(psi);
-            pr.WaitForExit(180000);
+            // 进程内生成（SpriteGen.cs）：以前是 Process.Start("python sprites.py")，
+            // 用户没装 Python + Pillow 就必然失败 —— 普通用户装不了，功能等于不存在。
+            _framesErr = "";
+            QSprite.Pack pack = QSprite.Generate(e.Image, size, e.AmpIdle, e.AmpPress, e.AmpClick, e.AmpDrag);
+            QSprite.WritePack(animDir, pack, true);
             string frames = Path.Combine(animDir, "frames.bin"), meta = Path.Combine(animDir, "frames.txt");
-            // 必须确认是本次写出来的：生成失败时旧文件还在，只看存在会误判成功
+            // 落盘后再核对一次：写失败时旧文件还在，只看存在会误判成功
             if (!File.Exists(frames) || !File.Exists(meta)) return false;
-            if (File.GetLastWriteTime(frames) < started.AddSeconds(-2)) return false;
+            if (new FileInfo(frames).Length < (long)pack.W * pack.H * 4 * pack.Total) return false;
             e.Frames = frames; e.Meta = meta; e.CharH = size;
+            _framesErr = "";
 
             Dictionary<string, string> m = ReadManifest(e.Dir);
             m["name"] = e.Name;
@@ -2465,7 +2513,7 @@ static partial class Settings
             WriteManifest(e.Dir, m);
             return true;
         }
-        catch (Exception ex) { LogErr("frames", ex); return false; }
+        catch (Exception ex) { _framesErr = ex.Message; LogErr("frames", ex); return false; }
     }
 
     static void Save()
@@ -2501,7 +2549,7 @@ static partial class Settings
                 {
                     BtnSave.IsEnabled = true; BtnSave.Content = "保存更改";
                     Dlg.Info("动画生成失败",
-                        "没能生成「" + ce.Name + "」的动画帧。\n请确认 Python + Pillow 可用，或运行 charpack.py rebuild 重建。", "好");
+                        "没能生成「" + ce.Name + "」的动画帧。\n" + (string.IsNullOrEmpty(_framesErr) ? "图片可能已经损坏，换一张 png/jpg 再试。" : _framesErr), "好");
                     return;
                 }
             }

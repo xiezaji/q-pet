@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- 纯函数单测：控制台工程，零 NuGet 依赖（只用 .NET Framework 参考程序集）。
-       编译：dotnet build Tests.csproj -c Release
-       运行：build\tests\Tests.exe   退出码 0 = 全通过 -->
+       编译：dotnet build src/Tests.csproj -c Release（在仓库根目录执行）
+       运行：build\tests\Tests.exe（仓库根目录下）  退出码 0 = 全通过 -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net48</TargetFramework>
@@ -12,13 +12,13 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
     <DebugType>none</DebugType>
-    <OutputPath>build\tests\</OutputPath>
+    <OutputPath>..\build\tests\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Core.cs" />
-    <Compile Include="tests\Tests.cs" />
+    <Compile Include="..\tests\Tests.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />

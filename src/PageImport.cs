@@ -20,18 +20,23 @@ static partial class Settings
             return QCore.SanitizeName(s);   // 实现在 Core.cs
         }
 
+        // ffmpeg 只用来把 mp3/m4a/ogg 转成 wav（桌宠只播 wav）。它是**可选**的：
+        // 找不到就把这几个文件跳过并说明原因，wav 照常导入。
         static string FindFfmpeg()
         {
-            string local = Path.Combine(Here, @"tools\ffmpeg.exe");
-            if (File.Exists(local)) return local;
+            foreach (string c in new string[]
+            {
+                Path.Combine(Here, @"tools\ffmpeg.exe"),
+                Path.Combine(Here, "ffmpeg.exe"),
+            })
+                if (File.Exists(c)) return c;
+
             string pf = Environment.GetEnvironmentVariable("PATH") ?? "";
             foreach (string dir in pf.Split(';'))
             {
                 if (dir.Trim() == "") continue;
                 try { string c = Path.Combine(dir.Trim(), "ffmpeg.exe"); if (File.Exists(c)) return c; } catch (Exception) { }
             }
-            string known = @"D:\f\ffmpeg-7.1-essentials_build\bin\ffmpeg.exe";
-            if (File.Exists(known)) return known;
             return "";
         }
 
@@ -158,11 +163,16 @@ static partial class Settings
                     Meta = Path.Combine(animDir, "frames.txt"), CharH = size, VoiceCount = rows.Count
                 };
                 LblImportMsg.Text = "正在生成动画…";
-                if (!BuildPackFrames(entry, size)) { LblImportMsg.Text = "动画生成失败：确认 Python/Pillow 可用。"; return; }
+                if (!BuildPackFrames(entry, size))
+                {
+                    LblImportMsg.Text = "动画生成失败：" + (string.IsNullOrEmpty(_framesErr)
+                        ? "图片可能损坏，换一张 png/jpg 再试。" : _framesErr);
+                    return;
+                }
 
                 ApplyPack(entry);
                 LblImportMsg.Text = "已创建并应用：" + name + "（语音 " + ok + " 条"
-                    + (skipped > 0 ? "，跳过 " + skipped + " 条（需要 ffmpeg）" : "") + "）";
+                    + (skipped > 0 ? "，跳过 " + skipped + " 条 —— mp3/m4a/ogg 要先转成 wav：把 ffmpeg.exe 放进 tools 目录再试，或自己在外面转好" : "") + "）";
                 TxtName.Text = ""; _importImg = ""; _importVoiceDir = "";
                 LblImg.Text = "未选择"; LblVoices.Text = "未选择";
                 ReloadChars();

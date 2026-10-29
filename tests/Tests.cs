@@ -95,6 +95,43 @@ public static class Tests
         Eq("CsvRow 拼接", "1,2,3", QCore.CsvRow("1", "2", "3"));
         Eq("CsvRow 逐列转义", "a,\"b,c\"", QCore.CsvRow("a", "b,c"));
 
+        // ---- 动画帧清单（角色包里的 frames.txt，属于不可信输入）----
+        // 这一组是回归测试：以前 pet.cs 用 int.Parse + int 乘法，
+        // 一个手改坏的 frames.txt 就能让桌宠启动即崩，或者带着负偏移去读像素。
+        var good = QCore.ParseFramesMeta(new string[] {
+            "w=213", "h=216", "idle=24", "press=6", "click=6", "drag=8", "fps=30" });
+        True("frames: 正常清单可用", good.IsOk);
+        Eq("frames: w", "213", good.W.ToString());
+        Eq("frames: h", "216", good.H.ToString());
+        Eq("frames: 总帧数", "44", good.Total.ToString());
+        Eq("frames: 30fps → 33ms", "33", good.FrameMs.ToString());
+        Eq("frames: 每帧字节", "184032", (good.W * good.H * 4).ToString());
+        Eq("frames: 总字节", "8097408", good.NeedBytes.ToString());
+
+        var noFps = QCore.ParseFramesMeta(new string[] { "w=100", "h=100", "idle=4", "press=1", "click=1", "drag=1" });
+        Eq("frames: 没写 fps 默认 30 → 33ms", "33", noFps.FrameMs.ToString());
+        var badFps = QCore.ParseFramesMeta(new string[] { "w=100", "h=100", "idle=4", "fps=0" });
+        Eq("frames: fps=0 不能除零", "33", badFps.FrameMs.ToString());
+        var fast = QCore.ParseFramesMeta(new string[] { "w=100", "h=100", "idle=4", "fps=60" });
+        Eq("frames: 60fps → 17ms", "17", fast.FrameMs.ToString());
+
+        True("frames: w 非数字要报错", !QCore.ParseFramesMeta(new string[] { "w=abc", "h=100", "idle=1" }).IsOk);
+        True("frames: w 缺失要报错", !QCore.ParseFramesMeta(new string[] { "h=100", "idle=1" }).IsOk);
+        True("frames: w=0 要报错", !QCore.ParseFramesMeta(new string[] { "w=0", "h=100", "idle=1" }).IsOk);
+        True("frames: w=99999 超上限要报错",
+            !QCore.ParseFramesMeta(new string[] { "w=99999", "h=99999", "idle=24" }).IsOk);
+        True("frames: 负帧数要报错",
+            !QCore.ParseFramesMeta(new string[] { "w=100", "h=100", "idle=-24" }).IsOk);
+        True("frames: 一帧都没有要报错",
+            !QCore.ParseFramesMeta(new string[] { "w=100", "h=100", "idle=0", "press=0" }).IsOk);
+        True("frames: 空清单要报错", !QCore.ParseFramesMeta(new string[0]).IsOk);
+        True("frames: null 要报错", !QCore.ParseFramesMeta(null).IsOk);
+        // 4096x4096 x 44 帧 = 2.95GB：int 乘法会溢出成负数，必须走 long
+        var huge = QCore.ParseFramesMeta(new string[] {
+            "w=4096", "h=4096", "idle=24", "press=6", "click=6", "drag=8" });
+        True("frames: 大画布可用", huge.IsOk);
+        Eq("frames: 大画布总字节用 long 不溢出", "2952790016", huge.NeedBytes.ToString());
+
         // ---- 报告 ----
         Console.WriteLine("Q Pet 单测：通过 " + _pass + " 项，失败 " + _fail.Count + " 项");
         foreach (string f in _fail) Console.WriteLine("  ✗ " + f);

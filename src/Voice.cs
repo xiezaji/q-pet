@@ -504,14 +504,7 @@ static partial class Settings
         }
 
         // ---------------- 保存 ----------------
-        static string FindPython()
-        {
-            string local = Path.Combine(Here, @"tools\python\python.exe");
-            if (File.Exists(local)) return local;
-            string dsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                @".dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe");
-            if (File.Exists(dsh)) return dsh;
-            return "python.exe";
-        }
+        // 这里原来的 FindPython() 已经删掉：动画生成改成进程内实现（SpriteGen.cs），
+        // 设置面板对 Python 不再有任何依赖。
 
 }

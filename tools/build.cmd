@@ -3,6 +3,7 @@ rem ============================================================================
 rem  Q Pet - build both exes and copy them next to this file.
 rem  Requirements: .NET SDK 6.0+ ( https://dotnet.microsoft.com/download )
 rem  Just double-click this file. Messages are English on purpose (cmd codepage).
+rem  Layout: sources in ..\src  ->  outputs to ..\build  ->  exes copied to repo root.
 rem
 rem  Steps:  0) version from git tag   1) XAML check   2) unit tests
 rem           3) Pet.exe   4) PetSettings.exe   5) copy to this folder
@@ -46,34 +47,34 @@ if errorlevel 1 (
   echo [1/5] XAML check  - skipped (python not found)
 ) else (
   echo [1/5] XAML check ...
-  python _ref\xamlgen.py check
+  python "%~dp0xamlgen.py" check
   if errorlevel 1 goto fail
 )
 echo.
 
 rem ---- [2/5] 纯函数单测 ----
 echo [2/5] unit tests ...
-dotnet build Tests.csproj -c Release -nologo -v q
+dotnet build "..\src\Tests.csproj" -c Release -nologo -v q
 if errorlevel 1 goto fail
-build\tests\Tests.exe
+"..\build\tests\Tests.exe"
 if errorlevel 1 goto fail
 echo.
 
 echo [3/5] building Pet.exe ...
-dotnet build Pet.csproj -c Release -nologo -v q -p:Version=%QVER% -p:FileVersion=%QFILE%
+dotnet build "..\src\Pet.csproj" -c Release -nologo -v q -p:Version=%QVER% -p:FileVersion=%QFILE%
 if errorlevel 1 goto fail
 echo [4/5] building PetSettings.exe ...
-dotnet build PetSettings.csproj -c Release -nologo -v q -p:Version=%QVER% -p:FileVersion=%QFILE%
+dotnet build "..\src\PetSettings.csproj" -c Release -nologo -v q -p:Version=%QVER% -p:FileVersion=%QFILE%
 if errorlevel 1 goto fail
 echo.
-echo [5/5] copying into this folder ...
-copy /y "build\pet\Pet.exe" "Pet.exe" >nul
+echo [5/5] copying into the repo root ...
+copy /y "..\build\pet\Pet.exe" "..\Pet.exe" >nul
 if errorlevel 1 goto busy
-copy /y "build\settings\PetSettings.exe" "PetSettings.exe" >nul
+copy /y "..\build\settings\PetSettings.exe" "..\PetSettings.exe" >nul
 if errorlevel 1 goto busy
 echo.
 echo [OK] Done.  version %QFILE%
-echo      double-click Pet.exe        -^> desktop pet
+echo      now open the repo folder and double-click Pet.exe        -^> desktop pet
 echo      double-click PetSettings.exe -^> settings
 echo.
 pause

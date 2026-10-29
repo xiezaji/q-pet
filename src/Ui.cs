@@ -130,8 +130,17 @@ static partial class Settings
 
                 FadeRes("Accent", c, ms);
                 FadeRes("AccentSolid", solid, ms);
-                // 承重线：比填充再深一档（白字对比 7:1 那一档）
-                FadeRes("AccentEdge", Darken(c, Colors.White, 8.5), ms);
+                // 承重线：比填充再深一档。
+                // 基准必须是 solid（不是主题色）：Darken 是「压到某个对比度为止、压够了就原样返回」，
+                // 主题色本身已经够深时（石墨 / 墨黑那类）Darken(c,…,8.5) 直接返回 c，
+                // 于是线 = 填充色，这条 2px 承重线等于不存在（--selftest 报「与填充 1.00:1 ✗」）。
+                Color edge = solid;
+                for (double f = 0.96; f >= 0.20; f -= 0.04)
+                {
+                    edge = Shade(solid, f - 1.0);
+                    if (Contrast(edge, solid) >= 1.85) break;
+                }
+                FadeRes("AccentEdge", edge, ms);
                 FadeRes("AccentHover", bh, ms);
                 FadeRes("AccentPress", bp, ms);
                 // 选中行的浅底：主题色往白里调，只当底色用，不参与对比度计算
