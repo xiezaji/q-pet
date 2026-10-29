@@ -32,7 +32,7 @@ static partial class Settings
             PageAbout.Children.Add(Card(spVer));
 
             // ---- 上次异常 ----
-            // 桌宠崩了会往同目录写 pet-crash.log，平时没人看 ⇒ 用户只觉得「她不见了」。
+            // 桌宠崩了会往同目录写 pet-crash.log，平时没人看 → 用户只觉得「她不见了」。
             // 这里把它捞出来：看得见才知道去查。
             var spCrash = LastCrashCard();
             if (spCrash != null) PageAbout.Children.Add(spCrash);

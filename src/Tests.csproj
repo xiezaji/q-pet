@@ -18,7 +18,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Core.cs" />
-    <Compile Include="..\tests\Tests.cs" />
+    <Compile Include="..\tests\CoreTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />

@@ -355,7 +355,7 @@ static partial class Settings
                 SnapsToDevicePixels = true, UseLayoutRounding = true
             };
 
-            // 模板：1px 描边的方框（常态描边透明 ⇒ 不占视觉，悬停才显形）+ 居中的图标。
+            // 模板：1px 描边的方框（常态描边透明 → 不占视觉，悬停才显形）+ 居中的图标。
             // 描边厚度始终是 1，只换色不换值 —— 换值会让图标在悬停时挪 1px。
             var tpl = new ControlTemplate(typeof(Button));
             var grid = new FrameworkElementFactory(typeof(Grid));
@@ -448,7 +448,7 @@ static partial class Settings
             meta.TextWrapping = TextWrapping.NoWrap;
             meta.TextTrimming = TextTrimming.CharacterEllipsis;
             meta.Margin = new Thickness(0, 0, 8, 0);
-            meta.ToolTip = (ce.HasFrames ? "动画 " + ce.Name + " 已就绪" : "⚠ 缺动画（保存时会重新生成）")
+            meta.ToolTip = (ce.HasFrames ? "动画 " + ce.Name + " 已就绪" : "缺动画（保存时会重新生成）")
                 + "\n" + ce.Dir;
             if (!ce.HasFrames) meta.Foreground = C("#B3261E");
             Grid.SetRow(meta, 1); Grid.SetColumn(meta, 0);
@@ -466,7 +466,7 @@ static partial class Settings
             card.Child = g;
             outer.Children.Add(card);
 
-            // 当前在用：顶部压一条 3px 绿（覆盖层，不占布局 ⇒ 不会把立绘顶下去 2px）。
+            // 当前在用：顶部压一条 3px 绿（覆盖层，不占布局 → 不会把立绘顶下去 2px）。
             // 「使用中」那三个字删掉之后，靠这条 + 绿边 + 浅绿底三件一起顶住识别度，
             // 但都不占文字位置，卡片读起来还是「图 / 名 / 读数」三样。
             if (cur)

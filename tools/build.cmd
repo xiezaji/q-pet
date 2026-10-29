@@ -30,10 +30,10 @@ rem      第 4 位是提交数，方便区分同一个 tag 之后的多次构建
 set QVER=2.0.0
 set QREV=0
 set TAG=
-for /f "delims=" %%t in ('git describe --tags --abbrev=0 2^>nul') do set "TAG=%%t"
+for /f "delims=" %%t in ('git describe --tags --abbrev^=0 2^>nul') do set "TAG=%%t"
 if not "%TAG%"=="" set "TAG=%TAG:v=%"
 if not "%TAG%"=="" (
-  echo %TAG% | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$" >nul
+  echo %TAG%| findstr /r "^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$" >nul
   if not errorlevel 1 set "QVER=%TAG%"
 )
 for /f "delims=" %%c in ('git rev-list --count HEAD 2^>nul') do set "QREV=%%c"

@@ -27,10 +27,10 @@
 </p>
 
 <div align="center">
-  <img src="docs/images/pet-anim.gif" width="420" alt="待机、按键、点击冒台词、拖动">
+  <img src="docs/images/pet-anim.gif" width="420" alt="待机与点击冒台词">
 </div>
 
-<p align="center"><sub>待机 → 按键 → 点击冒台词并出声 → 拖动。真实录屏，没有加速。</sub></p>
+<p align="center"><sub>待机呼吸 → 点一下 → 冒出台词（气泡与语音同时）。真实录屏，未加速。</sub></p>
 
 Q Pet 是一款 Windows 桌面宠物：透明置顶、透明区域点击穿透、不抢焦点、不占任务栏。
 点它一下会冒出台词并播放语音，拖动能换位置，下次启动回到原处。

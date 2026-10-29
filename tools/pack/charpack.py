@@ -30,8 +30,8 @@ import shutil
 import subprocess
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-CHARS = os.path.join(HERE, "chars")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CHARS = os.path.join(ROOT, "chars")
 IMG_DIR, ANIM_DIR, SFX_DIR = "图片", "动画", "音效"
 VOICE_DIR = os.path.join(SFX_DIR, "voices")
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".ogg", ".flac"}
@@ -162,7 +162,7 @@ def build_frames(d, char_h):
     image = find_image(d)
     if not image:
         raise SystemExit("没有 图片/image.*，先生成不了动画")
-    sys.path.insert(0, HERE)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import sprites
     sprites.build(image, int(char_h), os.path.join(d, ANIM_DIR), read_amps(d))
 

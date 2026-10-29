@@ -1,11 +1,9 @@
 // ============================================================================
 // Q Pet · 与 UI / Win32 无关的纯函数
 // ----------------------------------------------------------------------------
-// 为什么单独一个文件：这些规则以前散落在 pet.cs 与 Settings.cs 各处，改错了只能靠
-// 运行时自检（--selftest）和肉眼发现。抽出来之后：
-//   ① Tests.csproj 直接对它们跑断言（编译期之外唯一能自动发现回归的地方）；
-//   ② Pet.exe 与 PetSettings.exe 用同一份实现，不会出现「两边格式不一致」——
-//      之前 FmtSec 就是两份一模一样的拷贝。
+// 这些规则由 Pet.exe 与 PetSettings.exe 共用，也由 Tests.csproj 直接断言，故单独成文件：
+//   ① 单测是编译之外唯一能自动发现回归的地方；
+//   ② 两侧同一份实现，不会出现「格式不一致」。
 // 约束：这个文件不许引用 System.Drawing / WPF / 任何 P-Invoke，保持纯逻辑。
 // ============================================================================
 using System;
@@ -33,9 +31,9 @@ public static class QCore
 
     // ---------------- 动画帧清单（frames.txt） ----------------
     // 这份清单属于角色包，用户自己也能写（charpack.py / 手改），所以每个值都得校验：
-    //   · 以前用 int.Parse，写坏了在启动里抛 FormatException；
-    //   · 更糟的是 w/h 写成 99999 时 w*h*4 会整数溢出成负数，紧随其后的
-    //     「帧文件长度是否够」永远成立，于是带着负偏移去取像素 —— 崩得更晚、更难查。
+    //   · 解析失败只记一行状态，不抛异常；
+    //   · w/h 限制在 1~4096：否则 w*h*4 会溢出成负数，让后面的长度校验永远成立，
+    //     再带着负偏移去取像素。
     public class FramesMeta
     {
         public int W, H, Idle, Press, Click, Drag, Fps = 30;
@@ -43,7 +41,7 @@ public static class QCore
         public bool IsOk { get { return Error == null; } }
         public int Total { get { return Idle + Press + Click + Drag; } }
 
-        // 帧间隔：fps 合理就按它算（30fps ⇒ 33ms，和旧版一致），否则退回 33ms
+        // 帧间隔：fps 合理就按它算（30fps → 33ms，和旧版一致），否则退回 33ms
         public int FrameMs
         {
             get { return Fps >= 1 && Fps <= 120 ? Math.Max(8, (int)Math.Round(1000.0 / Fps)) : 33; }
@@ -74,7 +72,7 @@ public static class QCore
             else if (k == "drag") m.Drag = n;
             else if (k == "fps") m.Fps = n;
         }
-        // 4096 上限：单帧 4096x4096x4 = 64MB，远小于 int.MaxValue ⇒ 后续 int 乘法不会溢出
+        // 4096 上限：单帧 4096x4096x4 = 64MB，远小于 int.MaxValue → 后续 int 乘法不会溢出
         if (m.W <= 0 || m.H <= 0 || m.W > 4096 || m.H > 4096)
         {
             m.Error = "frames.txt 的画布尺寸不合法（w=" + m.W + " h=" + m.H + "），应在 1~4096 之间。";

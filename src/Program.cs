@@ -35,8 +35,7 @@ public static class PetMain
         {
             if (!created)
             {
-                // 以前直接 return ⇒ 用户双击两次毫无反应，还查不到原因。
-                // 现在：请已运行的那个实例把设置面板打开，并在 pet-status.txt 里留一条。
+                // 双击第二次时不能静默返回：请已运行的实例打开设置面板，并留一条状态。
                 PetApp.Pet.NotifyExistingInstance(dir);
                 return;
             }
@@ -49,9 +48,8 @@ public static class PetMain
             }
             catch (Exception ex)
             {
-                // 以前这里把异常吞了 ⇒ 双击没反应也查不到原因。
-                // 现在：落日志 **并且** 弹窗说清楚原因和下一步 —— 桌宠是发给朋友用的，
-                // 没人会去翻 pet-crash.log。
+                // 异常不能只落盘：双击没反应时没人会去翻 pet-crash.log，
+                // 所以既写日志，也弹窗说明原因和下一步。
                 string log = Path.Combine(dir, "pet-crash.log");
                 try { File.WriteAllText(log, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\r\n" + ex, new UTF8Encoding(false)); }
                 catch (Exception) { }
@@ -71,7 +69,7 @@ public static class PetMain
     }
 
     // 首次运行（或用户把 pet-config.txt 删了）：按 chars 目录里第一个可用角色现补一份。
-    // 以前缺配置 ⇒ meta 为空 ⇒ 抛异常 ⇒ 只留一份没人会看的日志，双击等于没反应。
+    // 缺 pet-config.txt 时若不补，meta 为空会直接抛异常。
     static void EnsureConfig(string cfg, string dir)
     {
         if (File.Exists(cfg)) return;

@@ -214,7 +214,7 @@ static partial class Settings
             try
             {
                 IntPtr p = new IntPtr(gh.AddrOfPinnedObject().ToInt64() + off);
-                // ⚠️ stride 是**一行**的字节数（w*4），不是整帧大小；
+                // stride 是**一行**的字节数（w*4），不是整帧大小；
                 //    传成整帧会让 WIC 以为要 stride*h 字节，直接报「缓冲区不足」。
                 BitmapSource bs = BitmapSource.Create(_w, _h, 96, 96, PixelFormats.Pbgra32, null, p, _fb, _w * 4);
                 bs.Freeze();
@@ -613,7 +613,7 @@ static partial class Settings
         try
         {
             // 首页常驻：右栏八格就是导航，中栏是内容视口。
-            // home ⇒ 中栏显示角色枢纽；点某一格 ⇒ 枢纽收起、中栏换成那一页。
+            // home → 中栏显示角色枢纽；点某一格 → 枢纽收起、中栏换成那一页。
             bool home = key == "home";
             _curPage = key;
             if (PageHome != null) PageHome.Visibility = Visibility.Visible;
@@ -801,7 +801,7 @@ static partial class Settings
         ShowPage(key == _curPage ? "home" : key);
     }
 
-    // 当前页那一格：IsChecked ⇒ 模板给整块墨底 + 白斜纹 + 提亮编号。
+    // 当前页那一格：IsChecked → 模板给整块墨底 + 白斜纹 + 提亮编号。
     // 比「描边 + 淡底」更清楚，而且不用在代码里逐个改文字颜色（Foreground 会继承）。
     static void HighlightTile(string key)
     {
@@ -1210,7 +1210,6 @@ static partial class Settings
         try
         {
             string png = Path.Combine(Here, "pet.png");
-            if (!File.Exists(png)) png = Path.Combine(Here, "icon-final.png");
             if (!File.Exists(png)) png = Path.Combine(Here, "pet-placeholder.png");
             if (File.Exists(png))
             {
@@ -1334,7 +1333,7 @@ static partial class Settings
             ShowSizePreview();
         };
         SldBub.ValueChanged += (s, e) => { LblBub.Text = (int)SldBub.Value + " px"; };
-        // 气泡关掉后，下面这些（字体 / 颜色 / 字号 / 外框）改了也看不到 ⇒ 整体置灰
+        // 气泡关掉后，下面这些（字体 / 颜色 / 字号 / 外框）改了也看不到 → 整体置灰
         ChkBub.Checked += (s, e) => SyncBubbleEnabled();
         ChkBub.Unchecked += (s, e) => SyncBubbleEnabled();
 
@@ -1510,7 +1509,7 @@ static partial class Settings
 
     static void ShowCharPreview()
     {
-        // 列表刷新时会短暂出现 SelectedIndex = -1（之前没防越界 ⇒ 删角色会崩窗口）
+        // 列表刷新时会短暂出现 SelectedIndex = -1（之前没防越界 → 删角色会崩窗口）
         int i = CmbChar.SelectedIndex;
         if (ImgChar == null || i < 0 || i >= ChList.Count) return;
         ImgChar.Source = LoadImg(ChList[i].Image);
@@ -1551,7 +1550,7 @@ static partial class Settings
         catch (Exception ex) { LogErr("sizeprev", ex); }
     }
 
-    // 气泡轮廓（预览用）：圆角矩形 + 尾巴，一条闭合路径 ⇒ 描边不会在内部留接缝
+    // 气泡轮廓（预览用）：圆角矩形 + 尾巴，一条闭合路径 → 描边不会在内部留接缝
     static Geometry BubbleGeometry(double l, double t, double r, double b, double rad,
                                    double tailL, double tailR, double tipX, double tipY)
     {
@@ -1794,7 +1793,7 @@ static partial class Settings
     }
 
     // 启动时自检：注册表里那条路径早就不存在（文件夹被挪走 / 删了 / 换机器）就按当前位置重写。
-    // 以前不管 ⇒ 用户把整个文件夹搬到别处后开机自启静默失效，界面上却还是「已开启」。
+    // 自启项里的路径会随文件夹搬动而失效：启动时校正一遍，界面上也就不会一直显示「已开启」。
     static string _autoStartNote = "";
     static void RepairAutoStart()
     {
@@ -1825,7 +1824,7 @@ static partial class Settings
             string val = AutoStartValue();
             if (val != "")
             {
-                // 路径已经不存在 ⇒ 这条启动项是废的，界面上就不该显示「已开启」
+                // 路径已经不存在 → 这条启动项是废的，界面上就不该显示「已开启」
                 string exe = AutoStartExeOf(val);
                 if (exe == "" || File.Exists(exe)) return true;
             }
@@ -1932,7 +1931,7 @@ static partial class Settings
         };
         pickRow.Children.Add(bCustom);
         var bReset = new Button { Content = "恢复默认", Style = (Style)Win.FindResource("SecondaryButton"), Margin = new Thickness(8, 0, 0, 0) };
-        // 默认 = make-pet-config.ps1 里的 themeColor（群青 #005FB8）。这里以前写的是 #FFFA00（荧光黄），显然不对
+        // 默认与 make-pet-config.ps1 的 themeColor 保持一致（群青 #005FB8）
         bReset.Click += (s, e) => { ApplyThemeColor(ThemeDefault, true); RefreshThemeTiles(); };
         pickRow.Children.Add(bReset);
         sp1.Children.Add(pickRow);
@@ -2411,8 +2410,7 @@ static partial class Settings
         foreach (KeyValuePair<string, string> kv in d) lines.Add(kv.Key + "=" + kv.Value);
         File.WriteAllLines(path, lines.ToArray(), new UTF8Encoding(false));
         // pet-overrides.txt 是「当前配置」的唯一真源，Cur 只是它的内存副本。
-        // 以前这里只写盘不更新副本 ⇒ 保存后 CurCharDir 还是旧角色，导入页的「使用中」
-        // 要等整个设置窗口重启才肯挪位（用户实测反馈）。整份替换，和刚写下的内容逐字一致。
+        // 写完盘必须整份同步替换副本，否则导入页的「使用中」还指着旧角色。
         Cur.Clear();
         foreach (KeyValuePair<string, string> kv in d) Cur[kv.Key] = kv.Value;
     }
@@ -2486,8 +2484,8 @@ static partial class Settings
         {
             string animDir = Path.Combine(e.Dir, "动画");
             Directory.CreateDirectory(animDir);
-            // 进程内生成（SpriteGen.cs）：以前是 Process.Start("python sprites.py")，
-            // 用户没装 Python + Pillow 就必然失败 —— 普通用户装不了，功能等于不存在。
+            // 进程内生成（SpriteGen.cs）：不依赖 Python + Pillow，
+            // 目标用户不会去装这两个东西。
             _framesErr = "";
             QSprite.Pack pack = QSprite.Generate(e.Image, size, e.AmpIdle, e.AmpPress, e.AmpClick, e.AmpDrag);
             QSprite.WritePack(animDir, pack, true);
@@ -2715,7 +2713,7 @@ static partial class Settings
 
 
 
-    // 一张角色卡：上半是立绘（浅底盘，底边对齐 ⇒ 不同身高也像站在同一层架子上），
+    // 一张角色卡：上半是立绘（浅底盘，底边对齐 → 不同身高也像站在同一层架子上），
     // 下半是名字 / 219 px │ 语音 12 / 删除。当前在用的那张：主题色描边 + 顶部 3px 主题条 + 「使用中」角标，
     // 和下拉框选中项是同一套语言（描边 + 浅底 + 主题色字），不靠改线宽来表达选中（否则会抖 1px）。
     const double CharCardW = 168, CharCardArtH = 128;
@@ -2993,7 +2991,7 @@ static partial class Settings
                 Win.UpdateLayout();
                 Win.Dispatcher.Invoke(new Action(() => { }), DispatcherPriority.Background);
                 Win.UpdateLayout();
-                // 高 34 = 全局 ComboBox 样式的 Height（本控件没自己设高）⇒ 确实复用了同一套，
+                // 高 34 = 全局 ComboBox 样式的 Height（本控件没自己设高）→ 确实复用了同一套，
                 // 而不是另画一个「看起来像」的下拉（之前是 Button + 自绘 Popup，高宽都得手对齐）
                 bool hOk = Math.Abs(_dateCombo.ActualHeight - 34) < 1;
                 bool wOk = _dateCombo.ActualWidth > 0;
@@ -3173,7 +3171,7 @@ static partial class Settings
         catch (Exception ex) { sb.AppendLine("  弹窗按钮: 异常 " + ex.Message); }
 
         // 首页「位置」实时刷新：轮询 pet-pos.txt，文件一变读数就跟着变（备份→改→读→还原）
-        // ⚠ 这里会切到首页，必须还原当前页 —— 后面几条自检（磁贴换肤）依赖停留在「通用设置」
+        // 这里会切到首页，必须还原当前页 —— 后面几条自检（磁贴换肤）依赖停留在「通用设置」
         try
         {
             string pf = Path.Combine(Here, "pet-pos.txt");
@@ -3214,7 +3212,7 @@ static partial class Settings
             bool hasAnim = ab != null && ab.HasAnimatedProperties;
             Color startCol = ab != null ? ab.Color : Colors.Transparent;
             _motionOff = bakMotion;
-            ApplyThemeColor(bakTheme);          // 复位（ms=0 ⇒ 硬切回去，不留动画残留）
+            ApplyThemeColor(bakTheme);          // 复位（ms=0 → 硬切回去，不留动画残留）
             bool okA = hasAnim && HexOf(startCol) != HexOf(want);
             sb.AppendLine("  换肤动效: ColorAnimation " + (hasAnim ? "已挂 ✓" : "没挂 ✗")
                 + " │ 起点 #" + HexOf(startCol) + "（旧色）→ 终点 #" + HexOf(want)
@@ -3257,8 +3255,7 @@ static partial class Settings
                 + " │ " + (cards > 0 && arts == cards && _importMarked != "" ? "正常 ✓" : "异常 ✗"));
 
             // 换角色保存后，导入页的「使用中」必须立刻换人：
-            // Cur 是 pet-overrides.txt 的内存副本，以前 WriteOverrides 只写盘不动副本
-            // ⇒ 卡片一直指着旧角色，得重启整个设置窗口才变（用户实测反馈的那个 bug）。
+            // Cur 是 pet-overrides.txt 的内存副本，写盘时不同步它，卡片就会一直指着旧角色。
             CharEntry other = null;
             foreach (CharEntry ce in ChList)
                 if (!string.IsNullOrEmpty(ce.Dir) && !IsCurrent(ce)) { other = ce; break; }
@@ -3848,9 +3845,9 @@ static partial class Settings
     </Style>
 
     <!-- 下拉框：直角、1px 细线、细折角箭头 + 一条竖分隔。
-         ⚠ IsEditable=True 时隐式 TextBox 样式会钻进 PART_EditableTextBox 变成「框中框」，
+         IsEditable=True 时隐式 TextBox 样式会钻进 PART_EditableTextBox 变成「框中框」，
            所以内部再套一套透明模板（本地 Setter 打不过样式里的 Template）。
-         ⚠ 下拉面板不用投影，用 1px 细线撑起层次。
+         下拉面板不用投影，用 1px 细线撑起层次。
          状态分工：悬停换线色和底色（中性），展开才上主题色、箭头翻面 ——
          主题色始终只表示「当前 / 展开」，不参与悬停。 -->
     <Style TargetType=""ComboBox"">
@@ -4605,7 +4602,7 @@ static partial class Settings
         <Grid x:Name=""midHost"" Grid.Column=""1"" Background=""{DynamicResource Paper}"">
           <!-- 枢纽视图：右侧磁贴点了某一页就收起，让位给下面的内容视口 -->
           <!-- 角色枢纽 = 整列立绘板：白板铺满中栏，立绘按比例吃满剩下的空间。
-               眉标和底部操作条是叠在上层的两个窄条（不设 Background ⇒ 滚轮和拖动穿透到底下的板），
+               眉标和底部操作条是叠在上层的两个窄条（不设 Background → 滚轮和拖动穿透到底下的板），
                所以「中间一列全是立绘」，控件只是浮在上面的一条细带。 -->
           <Grid x:Name=""hubView"" Margin=""0"">
             <Grid.RowDefinitions>

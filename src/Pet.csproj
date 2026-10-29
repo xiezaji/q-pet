@@ -29,7 +29,7 @@
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="pet.cs" />
+    <Compile Include="Pet.cs" />
     <!-- 纯函数（与设置面板、Tests 共用，见 Core.cs 文件头注释） -->
     <Compile Include="Core.cs" />
     <Compile Include="Program.cs" />

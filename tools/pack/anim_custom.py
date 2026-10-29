@@ -9,10 +9,9 @@
 槽位：idle / press / click / drag
 帧序固定为 待机 → 按键 → 点击 → 拖动；替换某一槽后会重新拼接 frames.bin 并更新计数。
 """
-# ⚠ 运行时不走这个文件了（2026-10-29）：设置面板的「新建角色 / 改大小 / 换动画」
-# 已经改成进程内的 C# 实现（SpriteGen.cs），因为普通用户不会装 Python + Pillow。
-# 这份脚本只作为**批量 / 开发**工具保留 —— 改动画数学时请同时改 SpriteGen.cs，
-# 两边输出必须能互相替换（frames.bin 格式完全一致）。
+# 运行时不经过这个脚本：设置面板的「新建角色 / 改大小 / 换动画」走 SpriteGen.cs。
+# 本脚本只作批量 / 开发工具保留；改动画数学时两边要同步，输出需能互相替换
+# （frames.bin 格式完全一致）。
 
 import argparse
 import json
@@ -24,7 +23,7 @@ import tempfile
 import numpy as np
 from PIL import Image, ImageSequence
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SLOTS = ("idle", "press", "click", "drag")
 MIN_FRAMES = {"idle": 2, "press": 4, "click": 4, "drag": 1}
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
@@ -193,7 +192,7 @@ def main():
         if name == "apply":
             p.add_argument("--src", required=True)
     a = ap.parse_args()
-    d = a.pack if os.path.isdir(a.pack) else os.path.join(HERE, "chars", a.pack)
+    d = a.pack if os.path.isdir(a.pack) else os.path.join(ROOT, "chars", a.pack)
     if not os.path.isdir(d):
         raise SystemExit("找不到角色包：%s" % d)
     if a.cmd == "apply":

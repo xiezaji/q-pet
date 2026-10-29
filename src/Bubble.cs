@@ -475,7 +475,7 @@ static partial class Settings
                     System.Runtime.InteropServices.GCHandle.Alloc(data, System.Runtime.InteropServices.GCHandleType.Pinned);
                 try
                 {
-                    // ⚠️ stride 是一行字节数（fw*4），不是整帧大小
+                    // stride 是一行字节数（fw*4），不是整帧大小
                     IntPtr p = new IntPtr(gh.AddrOfPinnedObject().ToInt64() + off);
                     BitmapSource bs = BitmapSource.Create(fw, fh, 96, 96, PixelFormats.Pbgra32, null, p, fb, fw * 4);
                     bs.Freeze();
@@ -642,7 +642,7 @@ static partial class Settings
             var cb = sender as ComboBox;
             if (cb == null || cb.IsEditable || !cb.IsEnabled) return;   // 可编辑的下拉交给文本框
             // 关键：下拉列表在独立 Popup 里，但预览事件是沿逻辑树隧道的，所以点选项时这里也会被调到。
-            // 之前一律 Toggle + Handled=true ⇒ 列表刚展开就被关掉、选中项也永远收不到点击（「选了不生效」）。
+            // 之前一律 Toggle + Handled=true → 列表刚展开就被关掉、选中项也永远收不到点击（「选了不生效」）。
             // 只接管「点在框身上」的那次点击，来自列表内部的点击原样放行。
             if (!ShouldToggleCombo(cb, e.OriginalSource as DependencyObject)) return;
             ComboToggle(cb);

@@ -1,6 +1,6 @@
 # Q Pet · 网页版
 
-把喜欢的角色放到浏览器里的桌宠，当前版本 2.0.0。在线试玩：<https://xiezaji.github.io/q-pet/>
+把喜欢的角色放到浏览器里的桌宠，当前版本 2.1.0。在线试玩：<https://xiezaji.github.io/q-pet/>
 
 纯静态站点，无构建、无后端、无第三方依赖。打开 `index.html` 即可运行，
 所有设置和统计只存在当前浏览器的 localStorage / IndexedDB 里。

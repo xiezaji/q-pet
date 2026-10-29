@@ -5,16 +5,15 @@
       [IDLE_N+PRESS_N, …) 拖动悬空摆动。
 锚点：脚底固定在画布底部居中（拖动帧会整体提起，脚不再锚定）。
 
-⚠️ 两个踩过的坑：
+两个踩过的坑：
   1. UpdateLayeredWindow 要求 32bpp **预乘 alpha**，所以这里直接输出预乘后的 BGRA，
      否则半透明边缘会发白/发亮。
   2. `scaled()` 里**绝不能**把放大后的图合成回原宽画布 —— 负偏移会把两侧裁掉，
      而且外层画布加多宽都没用（裁切发生在更早一步）。所以缩放和贴图彻底分开。
 """
-# ⚠ 运行时不走这个文件了（2026-10-29）：设置面板的「新建角色 / 改大小 / 换动画」
-# 已经改成进程内的 C# 实现（SpriteGen.cs），因为普通用户不会装 Python + Pillow。
-# 这份脚本只作为**批量 / 开发**工具保留 —— 改动画数学时请同时改 SpriteGen.cs，
-# 两边输出必须能互相替换（frames.bin 格式完全一致）。
+# 运行时不经过这个脚本：设置面板的「新建角色 / 改大小 / 换动画」走 SpriteGen.cs。
+# 本脚本只作批量 / 开发工具保留；改动画数学时两边要同步，输出需能互相替换
+# （frames.bin 格式完全一致）。
 
 import json
 import os
@@ -24,8 +23,8 @@ import sys
 import numpy as np
 from PIL import Image
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-OVERRIDES = os.path.join(HERE, "pet-overrides.txt")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OVERRIDES = os.path.join(ROOT, "pet-overrides.txt")
 
 
 def _override(key, default):
@@ -92,7 +91,7 @@ def scaled(im, sx, sy):
     """挤压/拉伸：**只缩放，绝不裁切**（居中和锚定交给 place()）。
 
     这里原来有个 bug：把放大后的图 alpha_composite 回**原宽**画布，居中偏移算出来是负数
-    （例如 290 宽放进 264 画布 ⇒ x = -13），两侧当场被切掉 —— 所以按压时角色缺一块，
+    （例如 290 宽放进 264 画布 → x = -13），两侧当场被切掉 —— 所以按压时角色缺一块，
     而且外层画布加多宽都没用（裁切发生在更早一步）。
     """
     w = max(1, int(round(im.width * sx)))
@@ -180,7 +179,7 @@ def build(src_path, char_h, out_dir, amps=None, make_preview=True):
 
 def main():
     # 兼容旧用法：--src/--char-h 不传就沿用 pet-overrides.txt；--out-dir 指定输出目录
-    out_dir = _arg("--out-dir", HERE)
+    out_dir = _arg("--out-dir", ROOT)
     src = _arg("--src", SRC)
     char_h = int(_arg("--char-h", CHAR_H))
     amps = {

@@ -243,7 +243,7 @@ public static class QSprite
         return Scale(src, (int)Math.Round(src.PixelWidth * sx), (int)Math.Round(src.PixelHeight * sy));
     }
 
-    // 居中 + 底部锚定；dx/dy 额外偏移。画布尺寸不变 ⇒ 缩放与贴图彻底分开，不会裁到角色。
+    // 居中 + 底部锚定；dx/dy 额外偏移。画布尺寸不变 → 缩放与贴图彻底分开，不会裁到角色。
     static BitmapSource Place(BitmapSource img, int cw, int ch, double dx, double dy)
     {
         double x = (cw - img.PixelWidth) / 2 + Math.Round(dx);
@@ -255,7 +255,7 @@ public static class QSprite
         return Render(dv, cw, ch);
     }
 
-    // 绕图心旋转、画布不放大 ⇒ 等价于 PIL 的 rotate(expand=False)：四角自然被裁掉
+    // 绕图心旋转、画布不放大 → 等价于 PIL 的 rotate(expand=False)：四角自然被裁掉
     static BitmapSource Rotate(BitmapSource img, double deg)
     {
         if (deg == 0) return img;
@@ -264,7 +264,7 @@ public static class QSprite
         RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.HighQuality);
         using (DrawingContext dc = dv.RenderOpen())
         {
-            // PIL 的 rotate(angle) 逆时针为正，WPF 的 RotateTransform 顺时针为正 ⇒ 取反
+            // PIL 的 rotate(angle) 逆时针为正，WPF 的 RotateTransform 顺时针为正 → 取反
             dc.PushTransform(new RotateTransform(-deg, w / 2.0, h / 2.0));
             dc.DrawImage(img, new Rect(0, 0, w, h));
             dc.Pop();
@@ -280,7 +280,7 @@ public static class QSprite
         return rtb;
     }
 
-    // 取裸 BGRA（RTB 是 Pbgra32 ⇒ 已经是预乘 alpha，正好是 UpdateLayeredWindow 要的格式）
+    // 取裸 BGRA（RTB 是 Pbgra32 → 已经是预乘 alpha，正好是 UpdateLayeredWindow 要的格式）
     static byte[] Pixels(BitmapSource b)
     {
         int stride = b.PixelWidth * 4;

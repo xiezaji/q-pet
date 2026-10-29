@@ -8,17 +8,18 @@
 q-pet/
 ├─ README.md / LICENSE / NOTICE.md
 ├─ start-pet.cmd / start-pet.vbs     启动桌宠（双击这里）
-├─ run-pet-settings.cmd              打开设置面板
+├─ start-settings.cmd                打开设置面板
 ├─ pet.ico / pet.png                 图标（运行时会用到）
 ├─ pet-placeholder.png               角色立绘缺失时的兜底图（运行时读）
 ├─ src/                              C# 源码与工程文件
-│  ├─ pet.cs                         桌宠本体（Win32 分层窗口 + GDI+）
+│  ├─ Pet.cs                         桌宠本体（Win32 分层窗口 + GDI+）
 │  ├─ Program.cs                     入口、单实例、崩溃提示
 │  ├─ Settings.cs                    设置面板：流程与配置
 │  ├─ Ui.cs / Bubble.cs / Voice.cs   主题、气泡、语音
 │  ├─ Page*.cs                       设置面板各页
 │  ├─ Core.cs / KeyStats.cs / CharMap.cs / AppTreemap.cs   纯函数（与单测共用）
-│  ├─ SpriteGen.cs                   动画帧生成（sprites.py 的 C# 移植）
+│  ├─ SpriteGen.cs                   动画帧生成
+│  ├─ Fonts/                         界面内置 Saira Wide（SIL OFL 1.1，编译期打进 exe）
 │  └─ *.csproj                       三个工程
 ├─ tools/
 │  ├─ build.cmd                      一键：校验 → 单测 → 编两个 exe → 复制到根目录
@@ -27,11 +28,9 @@ q-pet/
 │  ├─ pack-for-friend.ps1            打成品包（解压即用 zip）
 │  ├─ pack-source-for-friend.ps1     打源码包（对方本机编译，不触发 SmartScreen）
 │  ├─ restart-pet.ps1                重启桌宠
-│  └─ charpack.py / sprites.py / anim_custom.py   等价 Python 工具（开发/批量用）
-├─ tests/Tests.cs                    纯函数单测（62 项）
+│  └─ pack/                          批量制作角色包（charpack / sprites / anim_custom）
+├─ tests/CoreTests.cs                纯函数单测
 ├─ chars/                            角色包
-├─ audio/                            音效素材
-├─ Fonts/                            界面内置 Saira Wide（SIL OFL 1.1）
 ├─ docs/                             文档与展示图
 └─ web/                              网页版（原生 JS + Canvas，独立部署到 Pages）
 ```
@@ -116,9 +115,9 @@ python tools\xamlgen.py check    :: 只校验当前字符串，不写文件
 ## 打包分发
 
 ```powershell
-# 成品包：解压即用（默认只带当前角色，约 8 MB）
+# 成品包：解压即用（默认只带当前角色，约 4 MB）
 powershell -ExecutionPolicy Bypass -File tools\pack-for-friend.ps1
-# 带全部角色（约 130 MB）
+# 带全部角色（体积看你放了多少角色）
 powershell -ExecutionPolicy Bypass -File tools\pack-for-friend.ps1 -AllChars
 
 # 源码包：对方本机编译，exe 不带「来自其他计算机」标记，不会触发 SmartScreen
@@ -138,11 +137,11 @@ powershell -ExecutionPolicy Bypass -File tools\pack-source-for-friend.ps1
 设置面板里点按钮就够了，下面这些是等价工具，**需要 Python 3 + numpy + Pillow**：
 
 ```bat
-python tools\charpack.py list
-python tools\charpack.py new --name 新角色 --image D:\pics\a.png --voices D:\voices --char-h 219
-python tools\charpack.py rebuild --name 新角色 --char-h 260
-python tools\anim_custom.py apply --pack "chars/小维" --slot click --src D:\anim.gif
-python tools\anim_custom.py reset --pack "chars/小维" --slot click
+python tools\pack\charpack.py list
+python tools\pack\charpack.py new --name 新角色 --image D:\pics\a.png --voices D:\voices --char-h 219
+python tools\pack\charpack.py rebuild --name 新角色 --char-h 260
+python tools\pack\anim_custom.py apply --pack "chars/小维" --slot click --src D:\anim.gif
+python tools\pack\anim_custom.py reset --pack "chars/小维" --slot click
 ```
 
 `--slot` 可选 `idle` / `press` / `click` / `drag`。

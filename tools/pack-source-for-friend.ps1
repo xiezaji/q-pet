@@ -6,9 +6,8 @@
 #       powershell -ExecutionPolicy Bypass -File pack-source-for-friend.ps1 -Char 小维
 # 产物：dist\QPet-源码-<日期>.zip
 #
-# 为什么有时要发源码：在他自己电脑上编译出来的 exe 是「本机新文件」，
-# 不带「来自其他计算机」标记 ⇒ Windows 不会弹「已保护你的电脑」，
-# 也不需要任何代码签名证书。代价是他要先装 .NET SDK。
+# 源码包：对方自己编译出来的 exe 是本机新文件，不带「来自其他计算机」标记，
+# Windows 不弹「已保护你的电脑」，也不需要代码签名证书。代价是要先装 .NET SDK。
 # ============================================================================
 param(
     [string]$OutDir = 'dist',
@@ -22,10 +21,10 @@ Set-Location $here
 function Fail($msg) { Write-Host "✗ $msg" -ForegroundColor Red; exit 1 }
 
 # ---------- 1. 源码文件检查 ----------
-# 仓库布局（2026-10-29 起）：C# 源码在 src\、脚本在 tools\，根目录只留用户要双击的东西
+# 仓库布局：C# 源码在 src\、脚本在 tools\，根目录只留用户要双击的东西
 $rootFiles = @('LICENSE', 'NOTICE.md', 'README.md', 'pet.ico', 'pet.png', 'pet-placeholder.png',
-               'pet-config.txt', 'pet-overrides.txt', 'start-pet.cmd', 'start-pet.vbs', 'run-pet-settings.cmd')
-$srcFiles  = @('pet.cs', 'Program.cs', 'Core.cs', 'Settings.cs', 'Ui.cs', 'Bubble.cs', 'Voice.cs',
+               'pet-config.txt', 'pet-overrides.txt', 'start-pet.cmd', 'start-pet.vbs', 'start-settings.cmd')
+$srcFiles  = @('Pet.cs', 'Program.cs', 'Core.cs', 'Settings.cs', 'Ui.cs', 'Bubble.cs', 'Voice.cs',
                'PageAnim.cs', 'PageImport.cs', 'PageStats.cs', 'PageAbout.cs', 'CharMap.cs', 'KeyStats.cs',
                'AppTreemap.cs', 'SpriteGen.cs', 'Pet.csproj', 'PetSettings.csproj', 'Tests.csproj')
 $toolFiles = @('build.cmd', 'xamlgen.py', 'make-pet-config.ps1')
@@ -71,8 +70,9 @@ foreach ($cfgName in @('pet-config.txt', 'pet-overrides.txt')) {
     [System.IO.File]::WriteAllLines($cfgPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
 }
 
-# 单测与内置字体（xamlgen.py 已在 tools\ 里，随上面一起复制）
-foreach ($d in @('tests', 'Fonts')) { Copy-Item (Join-Path $here $d) (Join-Path $stage $d) -Recurse -Force }
+# 单测；内置字体随源码一起（现在在 src\Fonts）
+Copy-Item (Join-Path $here 'tests') (Join-Path $stage 'tests') -Recurse -Force
+Copy-Item (Join-Path $here 'src\Fonts') (Join-Path $stage 'src\Fonts') -Recurse -Force
 
 # 角色：默认只带当前角色
 New-Item -ItemType Directory -Path (Join-Path $stage 'chars') -Force | Out-Null
@@ -87,7 +87,7 @@ $guide = @"
 Q Pet · 在你自己电脑上编译运行
 ========================================
 
-为什么发源码：在你电脑上现编出来的 exe 是本机新文件，
+发源码的原因：你电脑上现编出来的 exe 是本机新文件，
 不带「来自其他计算机」标记，Windows 不会弹「已保护你的电脑」，
 也不需要我买代码签名证书。
 

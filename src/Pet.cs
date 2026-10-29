@@ -2,14 +2,14 @@
 // Q Pet（完全独立，不依赖 DSH）
 // ============================================================================
 // 原理：Win32 layered window（WS_EX_LAYERED + WS_EX_TOPMOST + WS_EX_TOOLWINDOW）
-//   用 UpdateLayeredWindow 贴**预乘 alpha** 的 32bpp DIB ⇒ 真透明、无边框、不进任务栏。
+//   用 UpdateLayeredWindow 贴**预乘 alpha** 的 32bpp DIB → 真透明、无边框、不进任务栏。
 //
 // 两个行为（对应用户需求 #1/#2）：
 //   #1 独立进程：不依赖任何宿主程序，开机自启、随时可关。
-//   #2 全局键盘/鼠标输入 ⇒ 播放「静默按压」动画（挤压-拉伸），**不出声**；
+//   #2 全局键盘/鼠标输入 → 播放「静默按压」动画（挤压-拉伸），**不出声**；
 //      只有点击桌宠本体才播放语音。
 //
-// 🔒 隐私边界（务必保留这段）：全局钩子挂的是 WH_KEYBOARD_LL / WH_MOUSE_LL，
+// 隐私边界：全局钩子挂的是 WH_KEYBOARD_LL / WH_MOUSE_LL，
 //   回调里**只判断 wParam 是不是「按下类」消息，然后置一个标志**。
 //   绝不读取 KBDLLHOOKSTRUCT / MSLLHOOKSTRUCT 的内容（即：不取键码、不取字符、
 //   不记录、不落盘、不外传）。整个文件里没有一处 Marshal.Read* 读取钩子 lParam。
@@ -140,7 +140,7 @@ namespace PetApp
         static IntPtr _hwnd = IntPtr.Zero, _memDc = IntPtr.Zero, _hBitmap = IntPtr.Zero, _screenDc = IntPtr.Zero;
         static IntPtr _bits = IntPtr.Zero;
         static IntPtr _kbHook = IntPtr.Zero, _mouseHook = IntPtr.Zero;
-        static WndProcDelegate _wndProc;   // 必须持有引用，否则被 GC 回收 ⇒ 回调野指针
+        static WndProcDelegate _wndProc;   // 必须持有引用，否则被 GC 回收 → 回调野指针
         static HookProc _kbProc, _mouseProc;
 
         static Dictionary<string, string> _cfg = new Dictionary<string, string>();
@@ -160,7 +160,7 @@ namespace PetApp
         static int _schedAt = 0; static string _schedPath = "";
         static int _posSavedAt = 0;               // 上次把位置写进 pet-pos.txt 的时刻（拖动中节流用）
 
-        // ---------------- 使用统计（🔒 本地、只计数、不联网） ----------------
+        // ---------------- 使用统计（本地、只计数、不联网） ----------------
         // 键盘：只累计「每个虚拟键码被按了多少次」——不记录顺序、不记录字符、不还原输入内容。
         // 软件：每秒取前台窗口的**进程名**，累计时长。
         // 屏幕：用 GetLastInputInfo 的空闲时间判断"在用/挂机"，累计秒数。
@@ -252,8 +252,8 @@ namespace PetApp
         static Graphics _g;
         static Font _font;
         static StringFormat _sf, _sfTop;
-        // 帧间隔：由 frames.txt 的 fps 决定（以前写死 33ms，而 fps 那个键写了从来没人读）。
-        // 30fps ⇒ 33ms，和旧版完全一致；换个 fps 的角色包才真的按它播。
+        // 帧间隔取自 frames.txt 的 fps（30fps → 33ms），换 fps 的角色包按它播；
+        // 包没写 fps 时用下面的兜底值。
         static int _frameMs = 33;      // 兜底值；真实值由 frames.txt 的 fps 决定（QCore.FramesMeta.FrameMs）
 
         static int Now { get { return Environment.TickCount; } }
@@ -302,7 +302,7 @@ namespace PetApp
 
                 int free = VoiceFreeInMs();
                 if (free > 0 && _voicePath != "")
-                    Status("⚠ 打断: " + reason + " 掐掉了「" + Path.GetFileName(_voicePath) + "」（它还应剩 " + free + "ms）");
+                    Status("打断: " + reason + " 掐掉了「" + Path.GetFileName(_voicePath) + "」（它还应剩 " + free + "ms）");
                 _voiceStartedAt = Now;
                 _voiceDurMs = WavDurationMs(path);
                 _voicePath = path;
@@ -324,7 +324,7 @@ namespace PetApp
 
         // 唯一的播放线程（MCI）：
         //   取请求 → close 旧别名（即时掐断）+ open/play 新文件 → 轮询 mode/position
-        //   → 播完时把**实际播放位置**写进日志（位置 < 文件时长 ⇒ 真被截，≥ ⇒ 播完整）
+        //   → 播完时把**实际播放位置**写进日志（位置 < 文件时长 → 真被截，≥ → 播完整）
         static string Mci(string cmd)
         {
             try
@@ -337,15 +337,15 @@ namespace PetApp
         }
 
         // ---------------- 音量：按比例衰减 wav 采样 ----------------
-        // 为什么不直接用 MCI 的 setaudio volume：waveaudio 驱动不一定实现它（实现了也常被
-        // Windows 的每应用音量覆盖），而且音量变了还要能立刻听到。直接改采样最稳：
+        // 不用 MCI 的 setaudio volume：waveaudio 驱动不一定实现（实现了也常被系统的
+        // 每应用音量覆盖），且改完要能立刻听到。直接改采样最稳：
         //   100% → 原文件；0–99% → 生成一份衰减副本，按 (原路径 + 音量) 缓存。
         // 实现在 Core.cs（与设置面板共用一份；Tests 工程对它跑断言）
         static string FnvHash(string s) { return QCore.FnvHash(s); }
 
-        // 缓存文件名是「源路径哈希 + 音量」，反推不出源文件 ⇒ 单独记一份索引，
-        // 启动时按索引清理：源语音没了（换角色 / 删角色 / 素材改名）就把它那份缓存删掉。
-        // 以前从不清 ⇒ 音量档 × 语音数，几十兆 wav 会一直堆在目录里。
+        // 缓存文件名是「源路径哈希 + 音量」，反推不出源文件，所以单独记一份索引。
+        // 启动时按索引清理：源语音没了（换角色 / 删角色 / 素材改名）就删掉对应缓存，
+        // 否则不同音量档 × 语音数会把几十兆 wav 一直堆在目录里。
         static string _volDir = "";
         static readonly Dictionary<string, string> _volIndex = new Dictionary<string, string>();   // 缓存文件名 → 源 wav
 
@@ -391,7 +391,7 @@ namespace PetApp
                     string dst = Path.Combine(_volDir, kv.Key);
                     bool stale = false;
                     try { stale = (DateTime.Now - File.GetLastWriteTime(dst)).TotalDays > 30; } catch (Exception) { }
-                    // 源文件没了 / 缓存本身没了 / 30 天没用过 ⇒ 都不用留
+                    // 源文件没了 / 缓存本身没了 / 30 天没用过 → 都不用留
                     if (!File.Exists(kv.Value) || !File.Exists(dst) || stale)
                     {
                         try { if (File.Exists(dst)) File.Delete(dst); } catch (Exception) { }
@@ -703,8 +703,8 @@ namespace PetApp
         }
 
         // ---------------- 位置可见性：老位置可能落在已经拔掉的显示器上 ----------------
-        // 以前只按「主屏分辨率」夹一次：副屏拔了 / 改了分辨率 / 换了显示器排布，
-        // 桌宠就可能停在屏幕外，用户只能手删 pet-pos.txt。这里改成按「任一显示器的工作区」判。
+        // 按「任一显示器的工作区」判断，而不只看主屏分辨率：副屏拔掉、改分辨率、
+        // 换显示器排布之后，桌宠可能停在屏幕外。
         static bool WorkAreaAt(POINT pt, out RECT wa)
         {
             wa = new RECT();
@@ -850,7 +850,7 @@ namespace PetApp
                         g.SmoothingMode = SmoothingMode.HighQuality;
                         g.Clear(Color.Transparent);
                         g.DrawImage(src, new Rectangle(0, 0, sz, sz), 0, 0, src.Width, src.Height, GraphicsUnit.Pixel);
-                        return bmp.GetHicon();   // 32bpp ARGB ⇒ 保留透明
+                        return bmp.GetHicon();   // 32bpp ARGB → 保留透明
                     }
                 }
             }
@@ -976,7 +976,7 @@ namespace PetApp
             }
             catch (Exception ex) { LogErr("LoadLines", ex); }
             // 带语音的台词清单（每行：文字 <TAB> wav 路径）。
-            // 点她 = 气泡显示这句 + 播**这句自己的**语音 ⇒ 文字与声音必然一致。
+            // 点她 = 气泡显示这句 + 播**这句自己的**语音 → 文字与声音必然一致。
             try
             {
                 string vp = Cfg("voicelines", "");
@@ -1008,7 +1008,7 @@ namespace PetApp
             return _lines.Length == 0 ? "" : _lines[_rnd.Next(_lines.Length)];
         }
 
-        // 点她 = 气泡显示一句台词 + 播**这句台词自己的**语音（同一份清单 ⇒ 文字与声音必然一致）。
+        // 点她 = 气泡显示一句台词 + 播**这句台词自己的**语音（同一份清单 → 文字与声音必然一致）。
         // 返回是否播了音（供「已播台词就不再叠按压/松开音」判断）。
         static bool DoClickLine()
         {
@@ -1054,7 +1054,7 @@ namespace PetApp
             Status("气泡: " + text.Replace("\n", " / "));
         }
 
-        // 气泡轮廓：圆角矩形 + 底部一个小尾巴（一条闭合路径 ⇒ 描边不会在内部留下接缝）
+        // 气泡轮廓：圆角矩形 + 底部一个小尾巴（一条闭合路径 → 描边不会在内部留下接缝）
         static GraphicsPath BubblePath(float l, float t, float r, float b, float rad,
                                        float tailL, float tailR, float tipX, float tipY)
         {
@@ -1093,7 +1093,7 @@ namespace PetApp
         }
 
         // 九宫格拉伸：四角按比例、只拉伸边和中间。分块用整数像素对齐，
-        // 相邻块共用边界 ⇒ 不会出现重叠发暗或缝隙亮线。
+        // 相邻块共用边界 → 不会出现重叠发暗或缝隙亮线。
         static void DrawNineSlice(Graphics g, Image img, RectangleF dst, float insX, float insY, float alpha)
         {
             int W = img.Width, H = img.Height;
@@ -1170,7 +1170,7 @@ namespace PetApp
             {
                 if (string.IsNullOrEmpty(_bubbleFrame) || !File.Exists(_bubbleFrame))
                 {
-                    Status("⚠ 自定义气泡外框不存在: " + _bubbleFrame);
+                    Status("自定义气泡外框不存在: " + _bubbleFrame);
                     return;
                 }
                 using (Bitmap raw = new Bitmap(_bubbleFrame))
@@ -1181,7 +1181,7 @@ namespace PetApp
                     + "  中间不透明度=" + _customCenterAlpha
                     + "  字色=" + (_customInk.R > 128 ? "浅" : "深"));
             }
-            catch (Exception ex) { Status("⚠ 读自定义气泡外框失败: " + ex.Message); }
+            catch (Exception ex) { Status("读自定义气泡外框失败: " + ex.Message); }
         }
 
         static void AnalyzeBubbleFrame(Bitmap b)
@@ -1376,7 +1376,7 @@ namespace PetApp
         }
 
         // 气泡：外框贴图 + 弹出/淡出 + 文字自动缩字号。
-        // ⚠️ 必须画进 Format32bppPArgb 的位图（GDI+ 会输出**预乘 alpha**），否则半透明边缘会发灰。
+        // 必须画进 Format32bppPArgb 的位图（GDI+ 会输出**预乘 alpha**），否则半透明边缘会发灰。
         static void DrawBubbleInto()
         {
             if (_bmp == null) return;
@@ -1657,7 +1657,7 @@ namespace PetApp
                     // 按要求：**每次点击都播新的一条**（不再用防抖丢弃点击）。
                     // 连击的流畅性靠三件事保证：时长缓存（不再反复读 wav）、单一播放线程、日志批量落盘。
                     bool playedLine = DoClickLine();           // 气泡 + 与之一一对应的语音（会打断上一句）
-                    _linePlayedOnDown = playedLine;            // 记住：本次点击已播台词 ⇒ 松开时别再放松开音
+                    _linePlayedOnDown = playedLine;            // 记住：本次点击已播台词 → 松开时别再放松开音
                     // 若还挂着待播的自动音（例如松开音），把它顺延到这句台词之后，而不是直接丢掉
                     if (_schedPath != "")
                     {
@@ -1713,9 +1713,9 @@ namespace PetApp
                     }
                     _dragging = false; ReleaseCapture();
                     if (_dragMoved) { SavePos(); Status("drag end -> 回到待机帧"); }
-                    // ⚠️ 已播台词语音时**绝不能**再放松开音：PlaySound 一次只放一个音，
+                    // 已播台词语音时**绝不能**再放松开音：PlaySound 一次只放一个音，
                     //    松开音会把刚起播的台词当场掐断（用户反馈"松开音把台词盖住了"）。
-                    // ⚠️ 只要**台词语音还在播**就绝不放松开音。
+                    // 只要**台词语音还在播**就绝不放松开音。
                     //    踩过的坑：双击时第二次按下的"防抖提前 return"跳过了 _linePlayedOnDown 赋值，
                     //    于是第二次松开时放了个松开音，把第一句**当场掐断**。
                     //    所以这里用"当前放的是不是台词"判断，比用一次性的标志稳。
@@ -1777,7 +1777,7 @@ namespace PetApp
             return DefWindowProcW(hWnd, msg, wParam, lParam);
         }
 
-        // ---------------- 全局钩子（🔒 按键频率统计只在开启时读 vkCode，且只计数） ----------------
+        // ---------------- 全局钩子（按键频率统计只在开启时读 vkCode，且只计数） ----------------
         static IntPtr KbHook(int nCode, IntPtr wParam, IntPtr lParam)
         {
             if (nCode >= 0)
@@ -1785,7 +1785,7 @@ namespace PetApp
                 int m = wParam.ToInt32();
                 if (m == 0x0100 || m == 0x0104)      // WM_KEYDOWN / WM_SYSKEYDOWN
                 {
-                    // ⚠️ 隐私边界：只有 _statsKeys 开启时才碰 lParam，且只做「这个键 +1」。
+                    // 隐私边界：只有 _statsKeys 开启时才碰 lParam，且只做「这个键 +1」。
                     //    不记录按键顺序、不保存字符内容、不写别处、不联网。
                     if (_statsKeys && lParam != IntPtr.Zero)
                     {
@@ -1814,12 +1814,12 @@ namespace PetApp
                     PostMessageW(_hwnd, (uint)(WM_APP + 2), IntPtr.Zero, IntPtr.Zero);
                 else if (m == WM_MOUSEWHEEL)
                 {
-                    // ⚠ 气泡长文本的滚动必须走这里。
+                    // 气泡长文本的滚动必须走这里。
                     // 窗口是 WS_EX_NOACTIVATE 且从不激活，而 WM_MOUSEWHEEL **只投递给有键盘焦点的窗口**，
                     // 所以 WndProc 里那个 case WM_MOUSEWHEEL 实际上永远收不到。
                     // 全局钩子是唯一可靠来源：把滚轮增量取出来，连同光标屏幕坐标一起转发。
                     //
-                    // ⚠⚠ lParam 在 **低级钩子(WH_MOUSE_LL)** 里不是消息的 lParam，
+                    // lParam 在 **低级钩子(WH_MOUSE_LL)** 里不是消息的 lParam，
                     // 而是指向 MSLLHOOKSTRUCT 的指针，布局是：
                     //     offset 0 : POINT pt (x, y)   —— 8 字节
                     //     offset 8 : UINT  mouseData    —— 滚轮增量在它的高 16 位
@@ -2029,8 +2029,8 @@ namespace PetApp
                 }
                 if (dt > 0) _statsDirty = true;
 
-                // 跨天：必须在「挂机就 return」之前判 —— 以前挂在后面，机器一整晚没人动
-                // 就永远翻不了天，第二天的数据全算在前一天头上。
+                // 跨天必须在「挂机就 return」之前判：否则机器一整晚没人动就永远翻不了天，
+                // 第二天的数据会算在前一天头上。
                 string today0 = DateTime.Now.ToString("yyyy-MM-dd");
                 if (_statsDay != today0)
                 {
@@ -2071,7 +2071,7 @@ namespace PetApp
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
 
         // ---------------- 空 catch 的兜底日志 ----------------
-        // 以前 catch {} 全裸 ⇒ 出问题只能靠猜。这里统一落 pet-error.log（只记一行，不刷屏）。
+        // 空 catch 一律走这里：落 pet-error.log，同一处只记一次，不刷屏。
         static string _errFile = "";
         static readonly System.Collections.Generic.HashSet<string> _errOnce =
             new System.Collections.Generic.HashSet<string>();
@@ -2089,7 +2089,7 @@ namespace PetApp
         }
 
         // ---------------- 第二个实例：把它「叫出来」，别静默退出 ----------------
-        // 以前拿不到互斥体直接 return ⇒ 用户双击两次以为程序坏了，且毫无痕迹。
+        // 拿不到互斥体时不能静默退出：让已运行的实例把设置面板打开，并留一条状态。
         public static void NotifyExistingInstance(string dir)
         {
             try
@@ -2101,7 +2101,7 @@ namespace PetApp
                 FlushLog();
                 IntPtr h = FindWindowW("PetWndClass", "Pet");
                 if (h != IntPtr.Zero) PostMessageW(h, (uint)WM_PET_ACTIVATE, IntPtr.Zero, IntPtr.Zero);
-                else Status("⚠ 互斥体被占用但没找到桌宠窗口（可能是残留进程）");
+                else Status("互斥体被占用但没找到桌宠窗口（可能是残留进程）");
                 FlushLog();
             }
             catch (Exception ex) { LogErr("NotifyExistingInstance", ex); }
@@ -2109,7 +2109,7 @@ namespace PetApp
 
         // ---------------- 状态文件（可验证通道：DPI 是否生效、窗口矩形、钩子句柄） ----------------
         // 轮转：pet-status.txt 永远只放「今天」，跨天时把昨天的挪成 pet-status-YYYY-MM-DD.txt，
-        // 归档只留最近 7 天。以前纯追加不清理 ⇒ 几个月能涨到几 MB。
+        // 归档只留最近 7 天，否则纯追加几个月能涨到几 MB。
         static string _statusFile = "";
         static string _statusDay = "";
 
@@ -2214,8 +2214,8 @@ namespace PetApp
             if (!Path.IsPathRooted(cd)) cd = Path.Combine(_baseDir, cd);
             Dictionary<string, string> m = ReadCharJson(cd);
             if (m.Count == 0)
-                // 以前这里只写一行日志就 return：于是桌宠继续用 pet-config.txt 里的旧路径，
-                // 安静地显示成**另一个角色**（配置里写着新角色，屏幕上却是旧的），用户根本查不出来。
+                // 不能只记日志就 return：那样会继续用 pet-config.txt 里的旧路径，
+                // 安静地显示成另一个角色，配置和屏幕对不上。
                 throw new Exception("角色包无效：" + Path.Combine(cd, "char.json") + " 读不到"
                     + "\n\n角色目录可能被删了或搬走了。请打开 PetSettings.exe 重新选一个角色。");
 
@@ -2225,7 +2225,7 @@ namespace PetApp
                 if (!m.TryGetValue(k, out v) || v == "") continue;
                 if (!Path.IsPathRooted(v)) v = Path.Combine(cd, v);
                 _cfg[k] = v;
-                if (!File.Exists(v)) Status("⚠ 角色包缺少 " + k + ": " + v);
+                if (!File.Exists(v)) Status("角色包缺少 " + k + ": " + v);
             }
             foreach (string k in new string[] { "press", "release" })
             {
@@ -2328,7 +2328,7 @@ namespace PetApp
                     + "\n请重新生成这个角色的动画（设置面板 → 形象与大小 → 保存更改）。");
             _w = fm.W; _h = fm.H;
             _idleN = fm.Idle; _pressN = fm.Press; _clickN = fm.Click; _dragN = fm.Drag;
-            _frameMs = fm.FrameMs;          // frames.txt 里的 fps 终于真的生效了（以前写死 33ms）
+            _frameMs = fm.FrameMs;          // 帧间隔取自 frames.txt 的 fps
 
             string framesPath = Cfg("frames", "");
             if (string.IsNullOrEmpty(framesPath) || !File.Exists(framesPath))
@@ -2404,7 +2404,7 @@ namespace PetApp
             }
 
             // DPI：必须让进程「每显示器感知」。否则本进程拿到的是 1536×864 这种虚拟坐标，
-            // DWM 会把 layered window 按 125% 拉伸 ⇒ 桌宠糊掉。
+            // DWM 会把 layered window 按 125% 拉伸 → 桌宠糊掉。
             bool dpiOk = SetProcessDpiAwarenessContext(new IntPtr(-4));   // PER_MONITOR_AWARE_V2
             if (!dpiOk) dpiOk = SetProcessDPIAware();
             Status("dpiAware=" + dpiOk + "  screen=" + GetSystemMetrics(0) + "x" + GetSystemMetrics(1) + "  lang=" + _lang);
@@ -2468,7 +2468,7 @@ namespace PetApp
                 RECT rr; GetWindowRect(_hwnd, out rr);
                 Status("shown  rect=" + rr.Left + "," + rr.Top + "," + rr.Right + "," + rr.Bottom
                     + "  dpi=" + GetDpiForWindow(_hwnd));
-                // 进程是「每显示器感知」，气泡位图按 96dpi 画 ⇒ 高 DPI 屏上文字会偏小。
+                // 进程是「每显示器感知」，气泡位图按 96dpi 画 → 高 DPI 屏上文字会偏小。
                 // 按实际 DPI 把字号放大回去，和系统缩放下的其它文字一样大。
                 ApplyDpiToBubble(GetDpiForWindow(_hwnd));
             }

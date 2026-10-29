@@ -14,7 +14,7 @@ Get-CimInstance Win32_Process -Filter "Name='Pet.exe'" -ErrorAction SilentlyCont
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Milliseconds 700
 
-# 2) 用 WMI 创建：父进程是 WmiPrvSE ⇒ 脱离调用者进程树，关闭本窗口也不影响桌宠
+# 2) 用 WMI 创建：父进程是 WmiPrvSE → 脱离调用者进程树，关闭本窗口也不影响桌宠
 if (-not (Test-Path $exe)) { "找不到 $exe"; exit 1 }
 $cmdline = '"' + $exe + '"'
 $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmdline }

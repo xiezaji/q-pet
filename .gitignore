@@ -32,6 +32,9 @@ se_err.txt
 pet-vol-cache/
 screenshots/
 
+# 本地笔记与参赛材料：不进仓库
+_notes/
+
 # local assistant memory
 .workbuddy/
 

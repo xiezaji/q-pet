@@ -10,9 +10,8 @@
 #       指定角色，忽略当前配置（发版打包用这个，免得带上本机正在用的角色）
 #   产物：dist\QPet-<日期>.zip（里面已经放好「首次运行请先看这里.txt」）
 #
-# 为什么要打包：直接把 Pet.exe 传到微信 / QQ 会被拦（不收 exe），
-# 而且单独发 exe 会带「来自其他计算机」标记，Windows 一定弹「已保护你的电脑」。
-# 发 zip + 让朋友先「解除锁定」再解压，可以彻底避开那个警告。
+# 打包成 zip：微信 / QQ 不收 exe；单独发 exe 还会带「来自其他计算机」标记，
+# Windows 必然弹「已保护你的电脑」。发 zip 并让对方先「解除锁定」再解压可避开。
 # ============================================================================
 param(
     [string]$OutDir = 'dist',
@@ -27,7 +26,7 @@ function Fail($msg) { Write-Host "✗ $msg" -ForegroundColor Red; exit 1 }
 
 # ---------- 1. 必带文件检查 ----------
 # pet-placeholder.png 是「角色立绘读不到」时的兜底图（PageImport.cs / Settings.cs 会读它），
-# 以前漏了它，对方机器上角色卡片会空白。
+# 漏了它对方机器上角色卡片会空白。
 $must = @('Pet.exe', 'PetSettings.exe', 'pet-config.txt', 'pet-overrides.txt', 'pet.png', 'pet.ico', 'pet-placeholder.png')
 foreach ($f in $must) {
     if (-not (Test-Path (Join-Path $here $f))) {
