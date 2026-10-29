@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="版本 2.0.0" src="https://img.shields.io/badge/version-2.0.0-6E56CF">
+  <img alt="版本 2.1.0" src="https://img.shields.io/badge/version-2.1.0-6E56CF">
   <img alt="Windows 10 / 11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white">
   <img alt="免安装" src="https://img.shields.io/badge/%E5%85%8D%E5%AE%89%E8%A3%85-%E8%A7%A3%E5%8E%8B%E5%8D%B3%E7%94%A8-2ea44f">
   <img alt="不联网" src="https://img.shields.io/badge/%E6%95%B0%E6%8D%AE-%E4%BB%85%E4%BF%9D%E5%AD%98%E5%9C%A8%E6%9C%AC%E5%9C%B0-2ea44f">
@@ -22,7 +22,7 @@
   </a>
   &nbsp;
   <a href="https://github.com/xiezaji/q-pet/releases/latest">
-    <img alt="下载桌面版" src="https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD%E6%A1%8C%E9%9D%A2%E7%89%88-%E8%A7%A3%E5%8E%8B%E5%8D%B3%E7%94%A8_7.8_MB-2ea44f?style=for-the-badge&logo=windows&logoColor=white">
+    <img alt="下载桌面版" src="https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD%E6%A1%8C%E9%9D%A2%E7%89%88-%E8%A7%A3%E5%8E%8B%E5%8D%B3%E7%94%A8_4_MB-2ea44f?style=for-the-badge&logo=windows&logoColor=white">
   </a>
 </p>
 
@@ -45,7 +45,7 @@ Q Pet 是一款 Windows 桌面宠物：透明置顶、透明区域点击穿透�
 
 ## 30 秒上手
 
-1. **[下载 win64 包](https://github.com/xiezaji/q-pet/releases/latest)**（约 7.8 MB）。
+1. **[下载 win64 包](https://github.com/xiezaji/q-pet/releases/latest)**（约 4 MB）。
 2. **先解除锁定，再解压** —— 右键 zip → 属性 → 勾选「解除锁定」→ 确定。
    这样解压出来的 exe 不带「来自其他计算机」标记，Windows 就不会弹「已保护你的电脑」。
    已经解压了也不要紧：右键 `Pet.exe` → 属性 → 勾「解除锁定」同样有效。
@@ -72,7 +72,7 @@ Q Pet 是一款 Windows 桌面宠物：透明置顶、透明区域点击穿透�
 
 「动画」页还能把某一类动作换成自己的 GIF / 一组图，或者一键恢复默认。
 
-> 发布包默认只带一套角色（7.8 MB，好传）。想要更多，用一张立绘自己做，或者从仓库 `chars/` 里拷。
+> 发布包默认只带一套角色（4 MB，好传）。想要更多，用一张立绘自己做，或者从仓库 `chars/` 里拷。
 
 <details>
 <summary><b>角色包结构（想手工做一个的话）</b></summary>
