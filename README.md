@@ -117,15 +117,16 @@ charH=200
 
 ## 设置中心
 
-Windows 11 Fluent 风格，改完即时生效。点图片看原始尺寸。
+八个分区，三栏布局：左边一列是当前配置的摘要，中间改，右边跳分区。
+直角、等宽小标签、主色可换；改完即时生效，不用重启。点图片看原始尺寸。
 
 | 气泡外观 | 动画调校 |
 | :---: | :---: |
 | <a href="docs/images/settings-bubble.png"><img src="docs/images/settings-bubble.png" width="400" alt="气泡外观设置"></a> | <a href="docs/images/settings-anim.png"><img src="docs/images/settings-anim.png" width="400" alt="动画设置"></a> |
-| 四种外框，颜色、字体、字号都能改 | 四类动画独立开关，幅度与倍速可调 |
+| 四种外框，颜色、字体、字号都能改 | 待机 / 按键 / 点击 / 拖动 分别开关，幅度与倍速可调 |
 | **语音台词** | **使用统计** |
 | <a href="docs/images/settings-voice.png"><img src="docs/images/settings-voice.png" width="400" alt="语音设置"></a> | <a href="docs/images/settings-stats.png"><img src="docs/images/settings-stats.png" width="400" alt="使用统计"></a> |
-| 台词与语音一一对应，可试听、编辑、删除 | 屏幕 / 活跃 / 软件 / 按键 / 陪伴时长，可导出 CSV |
+| 台词与语音一一对应，可试听、编辑、删除 | 屏幕 / 活跃 / 软件 / 按键热力 / 陪伴时长，可导出 CSV |
 
 ## 常见问题
 
