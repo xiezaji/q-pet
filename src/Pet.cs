@@ -126,6 +126,15 @@ namespace PetApp
         const int SW_HIDE = 0;
         const uint MONITOR_DEFAULTTONEAREST = 2;
         const uint MONITOR_DEFAULTTONULL = 0;
+        const int GWL_STYLE = -16;
+        // 普通窗口有标题栏 / 系统菜单 / 可调边框；真正全屏独占的程序一般是无边框 WS_POPUP
+        const uint WS_CAPTION = 0x00C00000, WS_THICKFRAME = 0x00040000, WS_SYSMENU = 0x00080000;
+        const int DWMWA_CLOAKED = 14;      // cloaked = 系统 Shell 的隐形宿主窗口，绝不能当成全屏应用
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr hWnd, StringBuilder s, int max);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr hWnd, StringBuilder s, int max);
+        [DllImport("user32.dll")] static extern int GetWindowLongW(IntPtr hWnd, int index);
+        [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hWnd, int attr, out int value, int size);
         [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
         [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool GetMonitorInfoW(IntPtr hMon, ref MONITORINFO mi);
@@ -186,6 +195,12 @@ namespace PetApp
         static int _holdMs = 110;
         static bool _hideFs = true;         // 全屏隐藏（设置面板「通用设置 → 全屏隐藏」）
         static bool _fsHidden = false;      // 当前是否正因全屏而隐藏
+        static int _fsCandidate = 0;        // 连续被判为「前台全屏」的秒数（迟滞，防瞬间误判）
+        // TickCount 是 int，开机超过 24.9 天会变成负数 → 不能拿 0 当「没设过」，用显式开关。
+        static bool _fsHoldOn = false;
+        static int _fsHoldUntil = 0;        // 手动唤回后的免疫期，期间不再自动隐藏
+        static bool _pressMsgSeen = false;
+        static int _lastPressMsgAt = 0;     // 高频输入合并用的时间戳
 
         // ---------------- 音量 / 动画（设置面板可调） ----------------
         // 音量：0–100，>0 且 <100 时把 wav 采样按比例衰减后播放（缓存到 pet-vol-cache），
@@ -1478,30 +1493,103 @@ namespace PetApp
         }
 
         // ---- 全屏隐藏 ----
-        // 判据只有一条：前台窗口的矩形盖住了它所在显示器的**整块**屏幕（含任务栏那条）。
-        // 最大化窗口只盖工作区、压不到任务栏，所以不会被误判；无边框全屏游戏 / 播放器两条都盖住。
+        // 旧判据只有一条「前台窗口矩形盖住整块显示器」，误伤很广：
+        //   桌面 Progman / WorkerW 本来就是整屏；输入法、开始菜单、搜索的
+        //   Windows.UI.Core.CoreWindow 是 cloaked 的全屏宿主窗口；任务栏自动隐藏时
+        //   普通最大化窗口也会铺满整屏。它们只要成为前台，桌宠就被 SW_HIDE，
+        //   表现就是「新开软件 / 连点时桌宠突然消失」，直到前台切走才回来。
+        // 现在四条同时满足才算全屏：不是桌面/Shell、不 cloaked、无普通窗口边框、确实盖满整屏。
+        static string _fsLastInfo = "";     // 最近一次被判为全屏的前台窗口，写进日志便于核对
+        static string _fsLastSkip = "";     // 去重：同一个窗口 + 同一个跳过原因只记一条，不刷日志
+
+        // 只有「矩形确实盖满整屏」才记跳过原因，普通窗口的判定不必刷日志。
+        static void FsSkip(string why, string info)
+        {
+            string key = why + "|" + info;
+            if (key == _fsLastSkip) return;
+            _fsLastSkip = key;
+            Status("全屏判定跳过: " + why + "  前台=" + info);
+        }
+
+        static bool IsShellWindowClass(string c)
+        {
+            if (string.IsNullOrEmpty(c)) return false;
+            return c == "Progman" || c == "WorkerW"
+                || c.StartsWith("Shell_", StringComparison.OrdinalIgnoreCase)
+                || c.StartsWith("Xaml", StringComparison.OrdinalIgnoreCase)
+                || c.IndexOf("TaskSwitcher", StringComparison.OrdinalIgnoreCase) >= 0
+                || c.IndexOf("MultitaskingView", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        static string WinInfo(IntPtr h)
+        {
+            try
+            {
+                StringBuilder c = new StringBuilder(128), t = new StringBuilder(128);
+                GetClassNameW(h, c, 128); GetWindowTextW(h, t, 128);
+                return c.ToString() + " [" + t.ToString() + "]";
+            }
+            catch (Exception) { return "?"; }
+        }
+
         static bool ForegroundIsFullscreen()
         {
             IntPtr fg = GetForegroundWindow();
             if (fg == IntPtr.Zero || fg == _hwnd) return false;
-            RECT r;
-            if (!GetWindowRect(fg, out r)) return false;
-            if (r.Right - r.Left < 200 || r.Bottom - r.Top < 200) return false;
-            IntPtr mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
-            if (mon == IntPtr.Zero) return false;
-            MONITORINFO mi = new MONITORINFO();
-            mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
-            if (!GetMonitorInfoW(mon, ref mi)) return false;
-            RECT m = mi.rcMonitor;
-            const int tol = 2;      // 无边框窗口常见 ±1px 误差
-            return r.Left <= m.Left + tol && r.Top <= m.Top + tol
-                && r.Right >= m.Right - tol && r.Bottom >= m.Bottom - tol;
+            try
+            {
+                RECT r;
+                if (!GetWindowRect(fg, out r)) return false;
+                if (r.Right - r.Left < 200 || r.Bottom - r.Top < 200) return false;
+                IntPtr mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+                if (mon == IntPtr.Zero) return false;
+                MONITORINFO mi = new MONITORINFO();
+                mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+                if (!GetMonitorInfoW(mon, ref mi)) return false;
+                RECT m = mi.rcMonitor;
+                const int tol = 2;      // 无边框窗口常见 ±1px 误差
+                if (!(r.Left <= m.Left + tol && r.Top <= m.Top + tol
+                   && r.Right >= m.Right - tol && r.Bottom >= m.Bottom - tol)) return false;
+
+                // 到这里：旧版会直接判「全屏」并把桌宠藏起来。逐条排除，且留下可核对的日志。
+                StringBuilder csb = new StringBuilder(128);
+                GetClassNameW(fg, csb, 128);
+                string cls = csb.ToString();
+                uint style = (uint)GetWindowLongW(fg, GWL_STYLE);
+                string info = WinInfo(fg) + " rect=" + r.Left + "," + r.Top + ","
+                            + r.Right + "," + r.Bottom + " style=0x" + style.ToString("X8");
+                if (!IsWindowVisible(fg)) { FsSkip("窗口不可见", info); return false; }
+                if (IsShellWindowClass(cls)) { FsSkip("桌面/Shell 窗口", info); return false; }
+                int cloaked = 0;
+                // 输入法候选、开始菜单这类全屏宿主窗口是 cloaked（本机实测 =2），永远不算全屏应用
+                if (DwmGetWindowAttribute(fg, DWMWA_CLOAKED, out cloaked, 4) == 0 && cloaked != 0)
+                { FsSkip("cloaked 宿主窗口", info); return false; }
+                // 普通窗口（含最大化）都有标题栏 + 可调边框 → 一律不算全屏。
+                // 不看 WS_SYSMENU：自绘边框的全屏播放器常保留它，误排除会让全屏隐藏失效。
+                if ((style & (WS_CAPTION | WS_THICKFRAME)) != 0)
+                { FsSkip("普通窗口边框（最大化）", info); return false; }
+                _fsLastInfo = info;
+                return true;
+            }
+            catch (Exception ex) { LogErr("ForegroundIsFullscreen", ex); return false; }
         }
 
         static void CheckFullscreen()
         {
+            if (_fsHoldOn)                                     // 手动唤回后的免疫期
+            {
+                if (unchecked(Now - _fsHoldUntil) < 0) { _fsCandidate = 0; return; }
+                _fsHoldOn = false;
+            }
             bool fs = _hideFs && ForegroundIsFullscreen();
-            if (fs == _fsHidden) return;              // 状态没变：每秒只做一次判定，别碰窗口
+            if (fs)
+            {
+                if (_fsHidden) { _fsCandidate = 0; return; }
+                // 每秒判一次，连续 2 秒才算真全屏：滤掉软件启动瞬间的整屏 splash、切窗口时的桌面
+                if (++_fsCandidate < 2) return;
+            }
+            else _fsCandidate = 0;
+            if (fs == _fsHidden) return;
             _fsHidden = fs;
             ShowWindow(_hwnd, fs ? SW_HIDE : SW_SHOWNOACTIVATE);
             if (!fs)
@@ -1510,17 +1598,48 @@ namespace PetApp
                 SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
                 Blit();
             }
-            Status("全屏隐藏: " + (fs ? "已隐藏（前台全屏）" : "已恢复显示"));
+            Status("全屏隐藏: " + (fs ? "已隐藏（前台全屏）  前台=" + _fsLastInfo : "已恢复显示"));
+        }
+
+        // 用户主动找桌宠：第二次启动 Pet.exe / 托盘双击 / 托盘菜单都走这里。
+        // 给 10 秒免疫期，免得刚唤回来又被同一个前台窗口压回去。
+        static void ForceShowPet(string why)
+        {
+            _fsHoldOn = true;
+            _fsHoldUntil = Now + 10000;
+            _fsCandidate = 0;
+            if (!_fsHidden) return;
+            _fsHidden = false;
+            ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
+            SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            Blit();
+            Status("手动唤回桌宠（" + why + "）：10 秒内不再自动隐藏");
         }
 
         // ---------------- 窗口过程 ----------------
+        // 窗口过程跑在消息循环里，任何漏出去的异常都会直接带走整个进程 ——
+        // 表现就是「点着点着桌宠突然没了」，既没弹窗也没 crash 日志。
+        // 这里统一兜住并落盘（pet-error.log），保证一次绘制/点击异常不会让桌宠消失。
         static IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+        {
+            try { return WndProcCore(hWnd, msg, wParam, lParam); }
+            catch (Exception ex)
+            {
+                string tag = "WndProc msg=0x" + msg.ToString("X");
+                LogErr(tag, ex);
+                Status(tag + " 异常已兜住: " + ex.Message);
+                return DefWindowProcW(hWnd, msg, wParam, lParam);
+            }
+        }
+
+        static IntPtr WndProcCore(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
             switch ((int)msg)
             {
                 // 第二个实例启动 → 把设置面板叫出来（双击两次不再毫无反应）
                 case WM_PET_ACTIVATE:
                     Status("收到「叫出来」请求（第二个实例启动）→ 打开设置面板");
+                    ForceShowPet("第二个实例启动");   // 桌宠被误隐藏时，双击一次 Pet.exe 就能找回来
                     OpenSettings();
                     return (IntPtr)0;
 
@@ -1619,7 +1738,9 @@ namespace PetApp
 
                 case WM_APP + 1:            // 键盘钩子：只表示「有按键按下」
                 case WM_APP + 2:            // 鼠标钩子：只表示「有点击」
-                    TriggerPress(false);
+                    // 高频连点：24ms 内的重复输入合并成一次，别让消息队列和动画状态机被灌爆
+                    if (!_pressMsgSeen || unchecked(Now - _lastPressMsgAt) >= 24)
+                    { _pressMsgSeen = true; _lastPressMsgAt = Now; TriggerPress(false); }
                     return IntPtr.Zero;
 
                 case WM_APP + 4:            // 鼠标钩子转发来的滚轮（唯一能收到 WM_MOUSEWHEEL 的途径）
@@ -1632,7 +1753,7 @@ namespace PetApp
                 case WM_TRAY:                // 托盘图标：双击 → 打开设置；右键 → 菜单（打开 / 关闭）
                     {
                         int ev = (int)lParam;
-                        if (ev == 0x0203 /*WM_LBUTTONDBLCLK*/) OpenSettings();
+                        if (ev == 0x0203 /*WM_LBUTTONDBLCLK*/) { ForceShowPet("托盘双击"); OpenSettings(); }
                         else if (ev == WM_RBUTTONUP) ShowTrayMenu();
                         return IntPtr.Zero;
                     }
@@ -1760,7 +1881,7 @@ namespace PetApp
                 case WM_COMMAND:             // 托盘右键菜单的选择
                     {
                         int id = (int)(wParam.ToInt64() & 0xFFFF);
-                        if (id == IDM_OPEN) OpenSettings();
+                        if (id == IDM_OPEN) { ForceShowPet("托盘菜单打开设置"); OpenSettings(); }
                         else if (id == IDM_QUIT) { Status("托盘菜单: 关闭桌宠"); Environment.Exit(0); }
                         return IntPtr.Zero;
                     }
@@ -1778,7 +1899,14 @@ namespace PetApp
         }
 
         // ---------------- 全局钩子（按键频率统计只在开启时读 vkCode，且只计数） ----------------
+        // 钩子回调同样由系统直接调用：漏异常 = 进程被带走。这里也兜一层。
         static IntPtr KbHook(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            try { return KbHookCore(nCode, wParam, lParam); }
+            catch (Exception ex) { LogErr("KbHook", ex); return CallNextHookEx(_kbHook, nCode, wParam, lParam); }
+        }
+
+        static IntPtr KbHookCore(int nCode, IntPtr wParam, IntPtr lParam)
         {
             if (nCode >= 0)
             {
@@ -1805,6 +1933,12 @@ namespace PetApp
         }
 
         static IntPtr MouseHook(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            try { return MouseHookCore(nCode, wParam, lParam); }
+            catch (Exception ex) { LogErr("MouseHook", ex); return CallNextHookEx(_mouseHook, nCode, wParam, lParam); }
+        }
+
+        static IntPtr MouseHookCore(int nCode, IntPtr wParam, IntPtr lParam)
         {
             if (nCode >= 0)
             {
@@ -1912,20 +2046,25 @@ namespace PetApp
             try
             {
                 if (string.IsNullOrEmpty(_statsFile) || !File.Exists(_statsFile)) return;
-                foreach (string line in File.ReadAllLines(_statsFile))
+                string today = DateTime.Now.ToString("yyyy-MM-dd");
+                QCore.StatsSnapshot s = QCore.ParseStats(File.ReadAllLines(_statsFile), today);
+                if (s.Stale)
                 {
-                    int eq = line.IndexOf('=');
-                    if (eq <= 0) continue;
-                    string k = line.Substring(0, eq), v = line.Substring(eq + 1);
-                    if (k == "day") { if (v == DateTime.Now.ToString("yyyy-MM-dd")) _statsDay = v; else continue; }
-                    else if (k == "screen") int.TryParse(v, out _screenSec);
-                    else if (k == "active") int.TryParse(v, out _activeSec);
-                    else if (k == "idle") int.TryParse(v, out _idleSec);
-                    else if (k == "app") { int bar = v.LastIndexOf('|'); if (bar > 0) { int n; if (int.TryParse(v.Substring(bar + 1), out n)) _appSec[v.Substring(0, bar)] = n; } }
-                    else if (k == "key") { int bar = v.LastIndexOf('|'); if (bar > 0) { int vk, n; if (int.TryParse(v.Substring(0, bar), out vk) && int.TryParse(v.Substring(bar + 1), out n)) _keyCount[vk] = n; } }
-                    else if (k == "char") { int bar = v.LastIndexOf('|'); if (bar > 0) { int n; if (int.TryParse(v.Substring(bar + 1), out n)) _charDaySec[v.Substring(0, bar)] = n; } }
+                    // 文件里是别的日子的累计（多半是关机过夜后第二天启动）。
+                    // 只跳过 day= 那一行、其余照加，就是「一天跑出 30 多小时」的根因。
+                    _statsDay = today;
+                    _statsDirty = true;             // 尽快用今天的空数据覆盖掉旧文件
+                    Status("使用统计: " + (s.Day == "" ? "旧格式无日期" : "上次是 " + s.Day)
+                        + " 的数据 → 今天重新计");
+                    return;
                 }
-                if (_statsDay == "") _statsDay = DateTime.Now.ToString("yyyy-MM-dd");
+                _statsDay = s.Day;
+                _screenSec = s.ScreenSec;
+                _activeSec = s.ActiveSec;
+                _idleSec = s.IdleSec;
+                foreach (KeyValuePair<string, int> kv in s.AppSec) _appSec[kv.Key] = kv.Value;
+                foreach (KeyValuePair<int, int> kv in s.KeyCount) _keyCount[kv.Key] = kv.Value;
+                foreach (KeyValuePair<string, int> kv in s.CharDaySec) _charDaySec[kv.Key] = kv.Value;
             }
             catch (Exception ex) { LogErr("LoadStats", ex); }
         }
@@ -2350,6 +2489,7 @@ namespace PetApp
             string hg = Cfg("holdMs", ""); if (hg != "") int.TryParse(hg, out _holdMs);
             _hideFs = Cfg("hideFullscreen", "1") == "1";
             Status("全屏隐藏=" + (_hideFs ? "开（前台全屏时让开）" : "关"));
+            Status("全屏判定=严格模式（排除桌面/Shell/cloaked/普通最大化，连续 2 秒才隐藏）");
             string bg = Cfg("bubbleH", ""); if (bg != "") int.TryParse(bg, out _bubbleH);
             string be = Cfg("bubbleEveryMs", ""); if (be != "") int.TryParse(be, out _bubbleEveryMs);
             string bf = Cfg("bubbleFont", ""); if (bf != "") _bubbleFont = bf;

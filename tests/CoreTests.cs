@@ -132,6 +132,49 @@ public static class Tests
         True("frames: 大画布可用", huge.IsOk);
         Eq("frames: 大画布总字节用 long 不溢出", "2952790016", huge.NeedBytes.ToString());
 
+        // ---- 使用统计文件（pet-stats.txt）----
+        // 回归：以前只跳过 day= 那一行，其余照加 → 关机过夜后第二天启动会把昨天的累计
+        // 当成今天的起点，界面上一天能显示 30 多小时，并且此后每天都接着涨。
+        string[] oldDay = {
+            "day=2026-11-16", "screen=101934", "active=101934", "idle=0",
+            "app=QQ|13565", "app=msedge|9500", "key=65|4849", "char=狗egg|101934" };
+        var stale = QCore.ParseStats(oldDay, "2026-11-17");
+        True("stats: 跨天文件整体作废", stale.Stale);
+        Eq("stats: 跨天 screen 归零", "0", stale.ScreenSec.ToString());
+        Eq("stats: 跨天 active 归零", "0", stale.ActiveSec.ToString());
+        Eq("stats: 跨天 app 不带过来", "0", stale.AppSec.Count.ToString());
+        Eq("stats: 跨天 key 不带过来", "0", stale.KeyCount.Count.ToString());
+        Eq("stats: 跨天 char 不带过来", "0", stale.CharDaySec.Count.ToString());
+
+        string[] sameDay = {
+            "day=2026-11-17", "screen=3600", "active=1800", "idle=1800",
+            "app=QQ|600", "app=msedge|1200", "key=65|12", "char=狗egg|3600" };
+        var fresh = QCore.ParseStats(sameDay, "2026-11-17");
+        True("stats: 同一天可用", !fresh.Stale);
+        Eq("stats: screen", "3600", fresh.ScreenSec.ToString());
+        Eq("stats: active", "1800", fresh.ActiveSec.ToString());
+        Eq("stats: idle", "1800", fresh.IdleSec.ToString());
+        Eq("stats: app 条数", "2", fresh.AppSec.Count.ToString());
+        Eq("stats: app 值", "1200", fresh.AppSec["msedge"].ToString());
+        Eq("stats: key 值", "12", fresh.KeyCount[65].ToString());
+        Eq("stats: char 值", "3600", fresh.CharDaySec["狗egg"].ToString());
+
+        // 夹取：历史文件里真的写出过 122007 秒这种「一天 33 小时」
+        var clamp = QCore.ParseStats(new[] { "day=2026-11-17", "screen=200000", "active=-5", "app=X|999999" },
+            "2026-11-17");
+        Eq("stats: 超过一天夹到 86400", "86400", clamp.ScreenSec.ToString());
+        Eq("stats: 负数夹成 0", "0", clamp.ActiveSec.ToString());
+        Eq("stats: app 也夹到 86400", "86400", clamp.AppSec["X"].ToString());
+
+        // 认不出的输入不能炸，也不能当成今天
+        True("stats: 缺 day 视为跨天", QCore.ParseStats(new[] { "screen=10" }, "2026-11-17").Stale);
+        True("stats: null 视为跨天", QCore.ParseStats(null, "2026-11-17").Stale);
+        True("stats: 空文件视为跨天", QCore.ParseStats(new string[0], "2026-11-17").Stale);
+        Eq("stats: 跨天时保留文件里的日期便于提示", "2026-11-16", stale.Day.ToString());
+        Eq("stats: 坏行的数字不参与", "0",
+            QCore.ParseStats(new[] { "day=2026-11-17", "screen=abc", "app=|", "key=x|1" }, "2026-11-17")
+                .ScreenSec.ToString());
+
         // ---- 报告 ----
         Console.WriteLine("Q Pet 单测：通过 " + _pass + " 项，失败 " + _fail.Count + " 项");
         foreach (string f in _fail) Console.WriteLine("  ✗ " + f);

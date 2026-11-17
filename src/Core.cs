@@ -7,6 +7,7 @@
 // 约束：这个文件不许引用 System.Drawing / WPF / 任何 P-Invoke，保持纯逻辑。
 // ============================================================================
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -27,6 +28,79 @@ public static class QCore
         if (s < 60) return s + "秒";
         if (s < 3600) return (s / 60) + "分";
         return (s / 3600) + "时" + ((s % 3600) / 60).ToString("00") + "分";
+    }
+
+    // ---------------- 使用统计（pet-stats.txt） ----------------
+    // 这个文件是 Pet.exe 自己写的，但也会被旧版本写坏、被用户手改，所以按不可信输入解析。
+    // 关键一条：day= 与今天不符时，整份文件都不能用。
+    //   旧实现只把 day= 那一行 continue 掉，后面的 screen / active / app / key 照样累加。
+    //   于是「关机过夜、第二天开机启动」时，昨天的累计被当成今天的起点：
+    //   界面上一天会显示 30 多小时，而且此后每天都接着前一天的数继续涨。
+    public const int MaxDaySec = 86400;          // 一个自然日最多 86400 秒
+
+    public class StatsSnapshot
+    {
+        public string Day = "";                  // 文件里写的日期；"" = 没有或读不出
+        public bool Stale;                       // true = 不属于今天，下面所有计数都是空的
+        public int ScreenSec, ActiveSec, IdleSec;
+        public Dictionary<string, int> AppSec = new Dictionary<string, int>(StringComparer.Ordinal);
+        public Dictionary<int, int> KeyCount = new Dictionary<int, int>();
+        public Dictionary<string, int> CharDaySec = new Dictionary<string, int>(StringComparer.Ordinal);
+    }
+
+    public static StatsSnapshot ParseStats(string[] lines, string today)
+    {
+        var s = new StatsSnapshot();
+        if (lines == null) { s.Stale = true; return s; }
+
+        // 第一遍只找日期：不知道「这是哪天的数」，后面的数字一个都不能信。
+        foreach (string raw in lines)
+        {
+            if (raw == null) continue;
+            string line = raw.Trim();
+            if (!line.StartsWith("day=", StringComparison.Ordinal)) continue;
+            s.Day = line.Substring(4).Trim();
+            break;
+        }
+        if (s.Day == "" || s.Day != (today ?? "")) { s.Stale = true; return s; }
+
+        foreach (string raw in lines)
+        {
+            if (raw == null) continue;
+            string line = raw.Trim();
+            int eq = line.IndexOf('=');
+            if (eq <= 0) continue;
+            string k = line.Substring(0, eq), v = line.Substring(eq + 1);
+            if (k == "screen") s.ScreenSec = DaySeconds(v);
+            else if (k == "active") s.ActiveSec = DaySeconds(v);
+            else if (k == "idle") s.IdleSec = DaySeconds(v);
+            else if (k == "app")
+            {
+                int bar = v.LastIndexOf('|');
+                if (bar > 0) s.AppSec[v.Substring(0, bar)] = DaySeconds(v.Substring(bar + 1));
+            }
+            else if (k == "key")
+            {
+                int bar = v.LastIndexOf('|');
+                int vk;
+                if (bar > 0 && int.TryParse(v.Substring(0, bar), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out vk)) s.KeyCount[vk] = DaySeconds(v.Substring(bar + 1));
+            }
+            else if (k == "char")
+            {
+                int bar = v.LastIndexOf('|');
+                if (bar > 0) s.CharDaySec[v.Substring(0, bar)] = DaySeconds(v.Substring(bar + 1));
+            }
+        }
+        return s;
+    }
+
+    // 单日秒数：非数字 → 0，负数 → 0，超过一天的按一天算（历史数据里真的出现过 122007 秒）
+    static int DaySeconds(string v)
+    {
+        int n;
+        if (!int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) return 0;
+        return n < 0 ? 0 : (n > MaxDaySec ? MaxDaySec : n);
     }
 
     // ---------------- 动画帧清单（frames.txt） ----------------

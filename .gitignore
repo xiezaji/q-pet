@@ -42,6 +42,7 @@ _notes/
 _旧命名备份/
 *.rar
 *.zip
+*.bak
 
 # OS
 Thumbs.db

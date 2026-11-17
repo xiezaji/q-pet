@@ -25,6 +25,25 @@ public static class PetMain
         string dir = AppDomain.CurrentDomain.BaseDirectory;
         if (dir.EndsWith("\\")) dir = dir.Substring(0, dir.Length - 1);
 
+        // 装到 C:\Program Files 这类只读目录时，配置和统计全都写不进去：
+        // 桌宠看起来能跑，但拖完位置记不住、设置面板「保存」没反应——用户只会觉得是 bug。
+        // 与其半残着跑，不如开机就说清楚该怎么做。
+        if (!DirWritable(dir))
+        {
+            try
+            {
+                MessageBoxW(IntPtr.Zero,
+                    "Q Pet 所在的文件夹不能写入：\r\n\r\n" + dir
+                    + "\r\n\r\n桌宠的位置、设置和使用统计都要存在这个文件夹里，"
+                    + "放在这里会「拖完位置记不住、设置存不下来」。"
+                    + "\r\n\r\n把整个文件夹移动到桌面或「文档」里，再双击 Pet.exe 就行。"
+                    + "（不需要安装，也不需要管理员权限。）",
+                    "Q Pet", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+            }
+            catch (Exception) { }
+            return;
+        }
+
         // 配置默认在 exe 同目录；也可以把配置路径作为第一个参数传进来
         string cfg = Path.Combine(dir, "pet-config.txt");
         if (args != null && args.Length > 0 && File.Exists(args[0])) cfg = args[0];
@@ -66,6 +85,20 @@ public static class PetMain
             try { File.Delete(Path.Combine(dir, "pet.pid")); }
             catch (Exception) { }
         }
+    }
+
+    // 目录能不能写：真写一个探针文件再删掉。只看 ACL 不可靠（虚拟化、只读挂载、
+    // Program Files 的 UAC 重定向都会让「看起来有权限」变成写入失败）。
+    static bool DirWritable(string dir)
+    {
+        string probe = Path.Combine(dir, ".qpet-write-probe");
+        try
+        {
+            File.WriteAllText(probe, "probe");
+            File.Delete(probe);
+            return true;
+        }
+        catch (Exception) { return false; }
     }
 
     // 首次运行（或用户把 pet-config.txt 删了）：按 chars 目录里第一个可用角色现补一份。
