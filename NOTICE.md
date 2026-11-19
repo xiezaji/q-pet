@@ -7,8 +7,10 @@
 - `chars/` 下各角色包中的立绘、动画帧、台词与语音（例如芙宁娜、阿米娅、小维、奶蛙等）。
 - `docs/images/` 中的角色相关展示图。
 
-另外，`src/Fonts/` 下的 Saira Wide 字体以 SIL Open Font License 1.1 授权，
-许可证全文见 [`src/Fonts/OFL.txt`](src/Fonts/OFL.txt)，可随程序一起分发。
+界面字体从 2026-11-19 起改为系统自带的微软雅黑，程序不再打包任何字体文件。
+`src/Fonts/` 与 `web/assets/fonts/` 里仍留着旧版界面用过的 Saira Wide
+（SIL Open Font License 1.1，许可证全文见 [`src/Fonts/OFL.txt`](src/Fonts/OFL.txt)），
+仅作历史留档，不参与构建、也不随程序分发。
 
 上述角色素材的版权归原权利方所有，仅用于个人学习与自用，
 请勿用于商业用途，也不要二次分发。

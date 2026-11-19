@@ -71,7 +71,7 @@ export const META = {
 
 // ================= 气泡 =================
 const FONT_NAMES = {
-  YouYuan: '幼圆', 'Noto Sans SC Medium': '思源黑体 Medium', 'Noto Sans SC': '思源黑体', DengXian: '等线',
+  'Microsoft YaHei': '微软雅黑', YouYuan: '幼圆', 'Noto Sans SC Medium': '思源黑体 Medium', 'Noto Sans SC': '思源黑体', DengXian: '等线',
   'Microsoft YaHei UI': '微软雅黑 UI', KaiTi: '楷体', SimHei: '黑体', FangSong: '仿宋',
 };
 const STYLES = [['card', '圆角卡片'], ['classic', '经典椭圆'], ['comic', '漫画描边'], ['glass', '半透明']];
@@ -268,7 +268,7 @@ const PRESETS = [180, 219, 260, 320, 400];
 function pageChar(S) {
   const d = S.draft, ch = S.ch();
   const pick = combo([...chars.values()].map(c => ({ value: c.id, label: c.name })), ch.id,
-    v => { d.charId = v; S.changed('charId'); S.rerender(); }, { width: 252, cls: 'pick' });
+    v => { d.charId = v; S.changed('charId'); S.rerender(); }, { width: 252 });
 
   const val = el('span', { style: { fontSize: '16px', fontWeight: 700 } });
   const pres = PRESETS.map(v => el('button', { class: 'pre', type: 'button', onclick: () => setH(v) }, String(v)));

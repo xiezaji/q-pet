@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -402,7 +402,7 @@ static partial class Settings
                 Background = cur ? CharCardCurFill : Brushes.White,
                 BorderBrush = cur ? CharCardCurLine : C("#E2E6EC"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(0),
+                CornerRadius = new CornerRadius(10),
                 SnapsToDevicePixels = true
             };
             var g = new Grid();
@@ -464,6 +464,7 @@ static partial class Settings
 
             Grid.SetRow(info, 1); g.Children.Add(info);
             card.Child = g;
+            ClipRounded(g, 9);                  // 立绘贴到卡片顶边，不裁的话四个圆角是方的
             outer.Children.Add(card);
 
             // 当前在用：顶部压一条 3px 绿（覆盖层，不占布局 → 不会把立绘顶下去 2px）。

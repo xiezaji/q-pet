@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Ellipse = System.Windows.Shapes.Ellipse;
@@ -126,6 +127,23 @@ static partial class Settings
             UpdateStats(true);
         }
 
+        // 方格图容器：圆角底 + 1px 边，并且把「方格」自己按圆角裁掉。
+        // 不裁的话会画成方角，圆角只在外圈 4px 的留白里露个影子，白改 —— Border 不会替你裁子元素。
+        static Border MapFrame(Canvas map)
+        {
+            var clip = new RectangleGeometry(new Rect(0, 0, 1, 1), 8, 8);
+            map.Clip = clip;
+            map.SizeChanged += (s2, e2) =>
+            {
+                if (e2.NewSize.Width > 0 && e2.NewSize.Height > 0)
+                    clip.Rect = new Rect(0, 0, e2.NewSize.Width, e2.NewSize.Height);
+            };
+            // 不再套「浅底 + 4px 留白」的相框：卡片本身已经是白底细边，
+            // 中间再嵌一层几乎同色的框，等于多画一条看不见的线、还把方格挤窄了 8px。
+            // 现在直接让方格铺满卡片内容宽度，只把外轮廓裁成 8px 圆角。
+            return new Border { Background = Brushes.Transparent, Child = map };
+        }
+
         static void BuildStatsPage()
         {
             if (PageStats == null) return;
@@ -134,7 +152,8 @@ static partial class Settings
             // 标题 / 说明：与其它页共用同一个页头组件，间距不会走形
             AddPageHead(PageStats, "// STATS", "使用统计", "只存本机，不联网",
                         "数据全部写在 pet-stats.txt，不上传。");
-            PageStats.Children.Add(new Border { Height = 20 });
+            // 页头自己带 18px 下距；再多垫一块就成 38px 的空洞（换皮后能看出来）
+            PageStats.Children.Add(new Border { Height = 10 });
 
             // ---- 日期选择：回看历史 ----
             var dateBar = new Grid();
@@ -225,11 +244,7 @@ static partial class Settings
             spChar.Children.Add(chTitle);
             spChar.Children.Add(Txt("面积 = 今日陪伴时长 │ 悬停看占比", 12, "#99000000"));
             spChar.Children.Add(new Border { Height = 8 });
-            spChar.Children.Add(new Border
-            {
-                Background = C("#FDFEFF"), BorderBrush = C("#EEF0F4"), BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(0), Padding = new Thickness(4), Child = MakeCharMap()
-            });
+            spChar.Children.Add(MapFrame(MakeCharMap()));
             // 头部之外的那几个：一行字收着，不去抢面积（面积只代表真实时长）
             _charTail = Txt("", 11.5, "#99000000");
             _charTail.Margin = new Thickness(2, 7, 0, 0);
@@ -242,11 +257,7 @@ static partial class Settings
             spApp.Children.Add(Txt("软件使用", 14, "#E4000000", true));
             spApp.Children.Add(Txt("面积 = 使用时长 │ 悬停看占比", 12, "#99000000"));
             spApp.Children.Add(new Border { Height = 8 });
-            spApp.Children.Add(new Border
-            {
-                Background = C("#FDFEFF"), BorderBrush = C("#EEF0F4"), BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(0), Padding = new Thickness(4), Child = MakeAppMap()
-            });
+            spApp.Children.Add(MapFrame(MakeAppMap()));
             PageStats.Children.Add(Card(spApp));
 
             // ---- 操作 ----
@@ -445,6 +456,7 @@ static partial class Settings
             if (pos == _livePosCache) return;          // 没动就不碰控件，免得每 400ms 抖一次布局
             _livePosCache = pos;
             if (TxtHomePos != null) TxtHomePos.Text = pos;
+            if (TxtDeckPos != null) TxtDeckPos.Text = pos;
             if (TxtRunPos != null) TxtRunPos.Text = pos;
         }
 

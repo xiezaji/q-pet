@@ -227,7 +227,7 @@ namespace PetApp
         static string[] _linePath = new string[0];
         static Random _rnd = new Random();
         static int _bubbleEveryMs = 600000;        // 隔多久自己冒一句（0 = 不主动冒）
-        static string _bubbleFont = "YouYuan";      // 气泡字体（幼圆；可在设置面板里换）
+        static string _bubbleFont = "Microsoft YaHei";   // 气泡字体（默认雅黑；可在设置面板里换）
         static string _bubbleStyle = "card";        // 气泡外框：card/classic/comic/glass/custom
         static string _bubbleFrame = "";            // 自定义外框图片（bubbleStyle=custom 时用）
         static Bitmap _bubbleImg;                   // 已解码的自定义外框

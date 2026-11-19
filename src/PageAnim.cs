@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -19,7 +19,8 @@ static partial class Settings
             _animCardsDir = SelectedChar != null ? SelectedChar.Dir : "";
 
             AddPageHead(PageAnim, "// ANIMATION", "动画", "每类动画单独调幅度与倍速，预览是真的帧");
-            PageAnim.Children.Add(new Border { Height = 20 });
+            // 页头自己带 18px 下距；再多垫一块就成 38px 的空洞（换皮后能看出来）
+            PageAnim.Children.Add(new Border { Height = 10 });
 
             CharEntry ce = SelectedChar;
             Dictionary<string, string> cm = (ce != null && !string.IsNullOrEmpty(ce.Dir))
@@ -79,10 +80,14 @@ static partial class Settings
                 var box = new Border
                 {
                     Width = 104, Height = 104, Background = C("#FAFBFD"),
-                    CornerRadius = new CornerRadius(0), Margin = new Thickness(0, 0, 12, 0)
+                    BorderBrush = C("#EEF1F6"), BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8), Margin = new Thickness(0, 0, 12, 0)
                 };
                 AnimPreview pv = new AnimPreview(96);
                 box.Child = pv.View;
+                // 预览是逐帧 WriteableBitmap，会铺满整个 Border 把圆角糊成方角，
+                // 所以得主动按 8px 裁（Border.CornerRadius 只画边、不裁子元素）。
+                ClipRounded(box, 8);
                 head.Children.Add(box);
 
                 var right = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -161,12 +166,15 @@ static partial class Settings
                 }
                 root.Children.Add(foot);
 
+                // 四张卡改成和统计 / 关于页同一张皮：白底 + 1px 细边 + 12px 圆角。
+                // 旧版是 Panel 底（Near-White #FFF 偏灰）+ #D9D9D6 边 + 直角，夹在新皮肤中间像外来页。
                 var border = new Border
                 {
                     Background = (Brush)Win.Resources["Panel"],
-                    BorderBrush = C("#D9D9D6"), BorderThickness = new Thickness(1),
-                    Padding = new Thickness(16, 14, 16, 14),
-                    Margin = new Thickness(0, 0, 10, 12)
+                    BorderBrush = C("#E6E8ED"), BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(12),
+                    Padding = new Thickness(18, 16, 18, 16),
+                    Margin = new Thickness(0, 0, 12, 12)
                 };
                 border.Child = root;
                 grid.Children.Add(border);

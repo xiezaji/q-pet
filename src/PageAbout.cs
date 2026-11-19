@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -12,7 +12,8 @@ static partial class Settings
             PageAbout.Children.Clear();
 
             AddPageHead(PageAbout, "// ABOUT", "关于", "版本、目录与链接");
-            PageAbout.Children.Add(new Border { Height = 20 });
+            // 页头自己带 18px 下距；再多垫一块就成 38px 的空洞（换皮后能看出来）
+            PageAbout.Children.Add(new Border { Height = 10 });
 
             // ---- 版本 ----
             string vSet = ExeVersion("PetSettings.exe");

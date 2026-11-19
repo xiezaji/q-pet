@@ -19,7 +19,7 @@ q-pet/
 │  ├─ Page*.cs                       设置面板各页
 │  ├─ Core.cs / KeyStats.cs / CharMap.cs / AppTreemap.cs   纯函数（与单测共用）
 │  ├─ SpriteGen.cs                   动画帧生成
-│  ├─ Fonts/                         界面内置 Saira Wide（SIL OFL 1.1，编译期打进 exe）
+│  ├─ Fonts/                         历史字体文件（Saira Wide ttf + OFL）；界面实际用系统微软雅黑，不打包
 │  └─ *.csproj                       三个工程
 ├─ tools/
 │  ├─ build.cmd                      一键：校验 → 单测 → 编两个 exe → 复制到根目录

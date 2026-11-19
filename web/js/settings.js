@@ -414,10 +414,10 @@ export class Settings {
     this.pageCtl = ctl;
     const body = el('div', { class: 'body' }, ctl.el);
     [...body.children].forEach((c, i) => { c.style.animationDelay = (Math.min(i, 6) * 45) + 'ms'; });
+    // 页头组件顺序和桌面端一致：眉标在上、22px 标题、一句说明，不画分隔线
     const page = el('div', { class: 'page' },
-      el('div', { class: 'ph' }, el('span', { class: 'h1' }, m.h1), el('span', { class: 'eyebrow' }, m.eyebrow)),
+      el('div', { class: 'ph' }, el('span', { class: 'eyebrow' }, m.eyebrow), el('span', { class: 'h1' }, m.h1)),
       el('div', { class: 'psub' }, m.sub),
-      el('div', { class: 'prule' }),
       body);
     if (keepScroll) { page.style.animation = 'none'; [...body.children].forEach(c => { c.style.animation = 'none'; }); }
     this.scroll.replaceChildren(page);

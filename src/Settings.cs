@@ -1,8 +1,8 @@
-// ============================================================================
+﻿// ============================================================================
 // Q Pet · 设置（独立 exe，不需要 PowerShell）
 // 设计：Fluent 浅色底 + 工业排版语言 ——
 //       配色沿用原来的基准（#F3F3F3 底 / #FFFFFF 卡片 / #E4000000 正文 / #005FB8 主题蓝）；
-//       形状是直角与切角（切角 = 可点击）、1px 细线分区、// 眉标 + 粗体中文、宽体拉丁（Saira Wide）。
+//       形状是直角与切角（切角 = 可点击）、1px 细线分区、// 眉标 + 粗体中文、全屏统一微软雅黑。
 //       主题色只做填充（导航当前项、开关、滑块、选中态），由 ApplyThemeColor 换肤。
 // 编译：dotnet build src/PetSettings.csproj -c Release   （产物 build\settings\PetSettings.exe）
 //       旧方式仍可用：csc /target:winexe /out:PetSettings.exe /r:PresentationFramework.dll
@@ -44,6 +44,7 @@ static partial class Settings
     static Border NavHost;
     static Grid ContentHost;
     static Button BtnHome, BtnHomeShow, BtnHomeFolder;
+    static Border BdHomeSep;
     // 中栏是内容视口：hubView（角色枢纽）和 contentHost（点开的那一页）互斥显示
     static FrameworkElement HubView, HubPlate, MidHost, HubViewport;
     static ScaleTransform HubScale;
@@ -78,6 +79,27 @@ static partial class Settings
                      TxtHomeVol, TxtHomeVolNote, TxtHomeTheme, TxtHomeRun, TxtHomePos;
     // 左栏脚注那一项（版本号）
     static TextBlock TxtSumVer;
+
+    // ---- 首页卡片墙（D 版）----
+    // 老的三栏（摘要 / 枢纽 / 八格）保留在 XAML 里只为兼容旧代码路径，列宽归零后不再露面。
+    static Grid HomeDeck;
+    static Button[] _deckCards;   // 八张入口卡，进场编排和悬停缩放都要遍历它
+    static Border[] _deckIcons;    // 与 _deckCards 同下标：悬停时放大这一块
+    static TextBlock TxtDeckBubble, TxtDeckTheme, TxtDeckSize, TxtDeckAnim,
+                     TxtDeckVol, TxtDeckImport, TxtDeckStats, TxtDeckAbout,
+                     TxtDeckCharName, TxtDeckCharMeta, TxtDeckRun, TxtDeckPos, TxtDeckVer;
+    static Image ImgDeckChar;
+    // 内容页左右两栏：左导航复用旧 navHost（只在首页收起），右栏是新增的角色/状态卡
+    static Border PageAside, BdAsideSwatch;
+    static ColumnDefinition ColNav, ColAside;
+    static Image ImgAsideChar;
+    static TextBlock TxtAsideName, TxtAsideMeta, TxtAsideBubble, TxtAsideVol, TxtAsideTheme;
+    static Border PageRail;
+    static ColumnDefinition ColRail;
+    static ToggleButton[] _railBtns;
+    static Button BtnRailHome;
+    static Button BtnDeckShow, BtnDeckFolder;
+    static TextBlock TxtTopPage;
     // 左栏调色板图例里那个 hex（原来写死 #005FB8，换主题色后就跟读数对不上）
     static TextBlock TxtPalAccent;
     // 左栏紧凑模式：620 高窗口下压行距，一屏放完五条读数
@@ -434,7 +456,8 @@ static partial class Settings
         if (themeTest != "")
         {
             _motionOff = true;
-            ShowPage("ui");
+            // --page 8 时截首页：八页图标块换肤后是不是真的跟着主题色走，只能在这里看
+            ShowPage(page == 8 ? "home" : "ui");
             Color tc = WpfParseHex(themeTest, _themeColor);
             if (!motionShot)
             {
@@ -514,7 +537,7 @@ static partial class Settings
     static int CurBubH { get { int v; return int.TryParse(CurOf("bubbleH", "110"), out v) ? v : 110; } }
     static int CurEvery { get { int v; return int.TryParse(CurOf("bubbleEveryMs", "300000"), out v) ? v : 300000; } }
     static string CurCharDir { get { return CurOf("charDir", ""); } }
-    static string CurFont { get { return CurOf("bubbleFont", "YouYuan"); } }
+    static string CurFont { get { return CurOf("bubbleFont", "Microsoft YaHei"); } }
     static bool CurClick { get { return CurOf("clickVoice", "0") == "1"; } }
     static int CurVol { get { int v; return int.TryParse(CurOf("volume", "100"), out v) ? Math.Max(0, Math.Min(100, v)) : 100; } }
     static bool CurAnim(string key) { return CurOf(key, "1") == "1"; }
@@ -615,18 +638,40 @@ static partial class Settings
             // 首页常驻：右栏八格就是导航，中栏是内容视口。
             // home → 中栏显示角色枢纽；点某一格 → 枢纽收起、中栏换成那一页。
             bool home = key == "home";
+            string prevPage = _curPage;
             _curPage = key;
             if (PageHome != null) PageHome.Visibility = Visibility.Visible;
-            if (NavHost != null) NavHost.Visibility = Visibility.Collapsed;   // 左栏列表已被八格取代
-            // 左摘要常驻（用户在内容页也要看得到这几项）；只有右栏八格在内容页收窄让宽度给中栏
-            if (SummaryHost != null) SummaryHost.Visibility = Visibility.Visible;
-            if (ColSummary != null) ColSummary.Width = new GridLength(216);
-            if (ColTiles != null) ColTiles.Width = new GridLength(300);
-            if (HubView != null) HubView.Visibility = home ? Visibility.Visible : Visibility.Collapsed;
+            // 内容页三栏（导航 │ 内容 │ 角色状态），首页时两侧收成 0 —— 卡片墙要整幅。
+            // 旧 navHost 不再复用：它在首页覆盖层下面，且样式是上一版的方角列表。
+            if (NavHost != null) NavHost.Visibility = Visibility.Collapsed;
+            if (ColNav != null) ColNav.Width = new GridLength(0);
+            if (PageRail != null) PageRail.Visibility = home ? Visibility.Collapsed : Visibility.Visible;
+            if (ColRail != null) ColRail.Width = new GridLength(home ? 0 : 168);
+            if (PageAside != null) PageAside.Visibility = home ? Visibility.Collapsed : Visibility.Visible;
+            if (ColAside != null) ColAside.Width = new GridLength(home ? 0 : 212);
+            SyncRail(home ? "" : key);
+            // D 版：左摘要、右八格、角色枢纽板全部退场，内容页整幅铺开。
+            // 三个老容器的列宽归零 + 自身收起，代码里对它们的引用（RefreshHome / PaintTiles）不受影响。
+            if (SummaryHost != null) SummaryHost.Visibility = Visibility.Collapsed;
+            if (ColSummary != null) ColSummary.Width = new GridLength(0);
+            if (ColTiles != null) ColTiles.Width = new GridLength(0);
+            if (TileHost != null) TileHost.Visibility = Visibility.Collapsed;
+            if (HubView != null) HubView.Visibility = Visibility.Collapsed;
+            if (HomeDeck != null) HomeDeck.Visibility = home ? Visibility.Visible : Visibility.Collapsed;
+            if (MidHost != null) MidHost.Visibility = home ? Visibility.Collapsed : Visibility.Visible;
             if (ContentHost != null) ContentHost.Visibility = home ? Visibility.Collapsed : Visibility.Visible;
             if (BtnHome != null) BtnHome.Visibility = home ? Visibility.Collapsed : Visibility.Visible;
+            if (BdHomeSep != null) BdHomeSep.Visibility = home ? Visibility.Collapsed : Visibility.Visible;
+            if (TxtTopPage != null) TxtTopPage.Text = home ? "首页" : PageTitle(key);
             HighlightTile(home ? null : key);
-            if (home) { RefreshHome(); FitHubPlate(); }
+            // 首页：八卡依次上浮；从首页进功能页：三栏合着进场；页与页之间：只让中间按页序横滑。
+            if (home) { RefreshHome(); PlayDeckIntro(); }
+            else if (prevPage == "home" || string.IsNullOrEmpty(prevPage))
+            {
+                RefreshDeck();
+                TriIntro();
+            }
+            else { RefreshDeck(); SlideIn(ContentHost, DirOf(key, prevPage)); }
 
             foreach (object o in Nav.Items)
             {
@@ -653,12 +698,386 @@ static partial class Settings
             if (key == "anim") BuildAnimPage(); else StopAnimPreviews();
             RefreshPageBar(key);
             Scroller.ScrollToTop();
-            AnimatePageIn();
+            StaggerPageCards();
         }
         finally { _navBusy = false; }
     }
 
     // ---------------- 首页 ----------------
+    static string PageTitle(string key)
+    {
+        switch (key)
+        {
+            case "bubble": return "气泡";
+            case "ui": return "通用设置";
+            case "char": return "形象与大小";
+            case "anim": return "动画";
+            case "voice": return "语音";
+            case "import": return "导入";
+            case "stats": return "使用统计";
+            case "about": return "关于";
+        }
+        return "首页";
+    }
+
+    // 左导航点一下换页。同页再点一次别把勾去掉 —— ToggleButton 默认会来回切。
+    static void Rail_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleButton rb = sender as ToggleButton;
+        if (rb == null) return;
+        if (rb.IsChecked != true) rb.IsChecked = true;
+        string key = rb.Uid;
+        if (!string.IsNullOrEmpty(key)) ShowPage(key);
+    }
+
+    static void SyncRail(string key)
+    {
+        if (_railBtns == null) return;
+        foreach (ToggleButton rb in _railBtns)
+        {
+            if (rb == null) continue;
+            bool on = rb.Uid == key;
+            if (rb.IsChecked != on) rb.IsChecked = on;
+        }
+    }
+
+    // 自检探针（起点）：动画第一帧必须落在指定方向的起点上，否则会闪一帧「已在原位」。
+    static string MotionStartProbe(string name, FrameworkElement fe, double wantX, double wantY)
+    {
+        if (fe == null) return name + "=null ";
+        TransformGroup tg = fe.RenderTransform as TransformGroup;
+        if (tg == null || tg.Children.Count < 2) return name + "=无位移组✗ ";
+        TranslateTransform tt = tg.Children[0] as TranslateTransform;
+        if (tt == null) return name + "=无平移✗ ";
+        bool ok = Math.Abs(tt.X - wantX) < 1.0 && Math.Abs(tt.Y - wantY) < 1.0 && fe.Opacity < 0.25;
+        return name + "=" + (ok ? "✓" : "(" + tt.X.ToString("0") + "," + tt.Y.ToString("0")
+            + ",a" + fe.Opacity.ToString("0.00") + ")✗") + " ";
+    }
+
+    // 自检探针（落位）：动画跑完后必须干净归零，不能靠 RenderTransform 停在半路。
+    static string MotionRestProbe(string name, FrameworkElement fe)
+    {
+        if (fe == null) return name + "=null ";
+        TransformGroup tg = fe.RenderTransform as TransformGroup;
+        if (tg == null || tg.Children.Count < 2) return name + "=无位移组✗ ";
+        TranslateTransform tt = tg.Children[0] as TranslateTransform;
+        if (tt == null) return name + "=无平移✗ ";
+        bool rest = Math.Abs(tt.X) < 0.5 && Math.Abs(tt.Y) < 0.5 && Math.Abs(fe.Opacity - 1) < 0.01;
+        return name + "=" + (rest ? "✓" : "停在(" + tt.X.ToString("0") + "," + tt.Y.ToString("0") + ")✗") + " ";
+    }
+
+    // 卡片墙点一下进对应页。卡片是 Button（不是 ToggleButton）：这里是入口，不需要选中态，
+    // 当前在哪页由标题栏的页名交代。
+    static void DeckCard_Click(object sender, RoutedEventArgs e)
+    {
+        Button b = sender as Button;
+        if (b == null) return;
+        string key = b.Tag as string;
+        if (string.IsNullOrEmpty(key)) return;
+        ShowPage(key);
+    }
+
+    // 悬停时图标块放大 1.08。放在代码里而不是 Style 里：Style.Setter 里的 Freezable 会被
+    // Style.Seal() 冻结，冻结的 ScaleTransform 一动就抛「无法对只读对象动画」。
+    static void DeckCard_Enter(object sender, MouseEventArgs e)
+    {
+        Border ic = IconOf(sender);
+        if (ic == null || _motionOff) return;
+        ScaleTransform sc = ic.RenderTransform as ScaleTransform;
+        if (sc == null)
+        {
+            sc = new ScaleTransform(1, 1);
+            ic.RenderTransformOrigin = new Point(0.5, 0.5);
+            ic.RenderTransform = sc;
+        }
+        DoubleAnimation ax = new DoubleAnimation(1.08, TimeSpan.FromMilliseconds(170))
+        { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.35 } };
+        DoubleAnimation ay = new DoubleAnimation(1.08, TimeSpan.FromMilliseconds(170))
+        { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.35 } };
+        sc.BeginAnimation(ScaleTransform.ScaleXProperty, ax);
+        sc.BeginAnimation(ScaleTransform.ScaleYProperty, ay);
+    }
+
+    static void DeckCard_Leave(object sender, MouseEventArgs e)
+    {
+        Border ic = IconOf(sender);
+        if (ic == null || _motionOff) return;
+        ScaleTransform sc = ic.RenderTransform as ScaleTransform;
+        if (sc == null) return;
+        DoubleAnimation ax = new DoubleAnimation(1, TimeSpan.FromMilliseconds(180))
+        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        DoubleAnimation ay = new DoubleAnimation(1, TimeSpan.FromMilliseconds(180))
+        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        sc.BeginAnimation(ScaleTransform.ScaleXProperty, ax);
+        sc.BeginAnimation(ScaleTransform.ScaleYProperty, ay);
+    }
+
+    static Border IconOf(object sender)
+    {
+        Button b = sender as Button;
+        if (b == null || _deckCards == null || _deckIcons == null) return null;
+        int i = Array.IndexOf(_deckCards, b);
+        return i >= 0 && i < _deckIcons.Length ? _deckIcons[i] : null;
+    }
+
+    // 打开首页：八张卡依次上浮淡入，每张晚 55ms，整组 0.5 秒收工。
+    // 位移加在 Button 自己的 RenderTransform 上（模板里 Grid 的那套是悬停用的，互不干扰）。
+    static void PlayDeckIntro()
+    {
+        if (_deckCards == null) return;
+        int i = 0;
+        foreach (Button b in _deckCards)
+        {
+            if (b == null) { i++; continue; }
+            if (_motionOff)
+            {
+                b.BeginAnimation(UIElement.OpacityProperty, null);
+                TranslateTransform t0 = b.RenderTransform as TranslateTransform;
+                if (t0 != null) { t0.BeginAnimation(TranslateTransform.YProperty, null); t0.Y = 0; }
+                b.Opacity = 1;
+                i++;
+                continue;
+            }
+            TranslateTransform tt = b.RenderTransform as TranslateTransform;
+            if (tt == null) { tt = new TranslateTransform(0, 0); b.RenderTransform = tt; }
+            b.BeginAnimation(UIElement.OpacityProperty, null);
+            tt.BeginAnimation(TranslateTransform.YProperty, null);
+            b.Opacity = 0;
+            tt.Y = 12;
+            int delay = i * 55;
+            DoubleAnimation oa = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(260))
+            { BeginTime = TimeSpan.FromMilliseconds(delay) };
+            DoubleAnimation ya = new DoubleAnimation(12, 0, TimeSpan.FromMilliseconds(320))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(delay),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            oa.Completed += (s2, e2) => { b.BeginAnimation(UIElement.OpacityProperty, null); b.Opacity = 1; };
+            ya.Completed += (s2, e2) => { tt.BeginAnimation(TranslateTransform.YProperty, null); tt.Y = 0; };
+            b.BeginAnimation(UIElement.OpacityProperty, oa);
+            tt.BeginAnimation(TranslateTransform.YProperty, ya);
+            i++;
+        }
+    }
+
+    // 页序：决定切页时从左边还是右边滑进来。
+    // 首页 → 任一页 = 往右走（+1），返回 = 往左走（-1），页与页之间按编号比大小。
+    static int PageOrder(string key)
+    {
+        switch (key)
+        {
+            case "home": return 0;
+            case "bubble": return 1;
+            case "ui": return 2;
+            case "char": return 3;
+            case "anim": return 4;
+            case "voice": return 5;
+            case "import": return 6;
+            case "stats": return 7;
+            case "about": return 8;
+            default: return 0;
+        }
+    }
+
+    static int DirOf(string key, string prev)
+    {
+        int a = PageOrder(prev), b = PageOrder(key);
+        if (b == a) return 1;
+        return b > a ? 1 : -1;
+    }
+
+    // 统一的进场位移：从 (x0, y0) 滑回 (0,0)，同时不透明度 0→1、缩放 sx→1。
+    // 三栏进场和页内切换共用这一份 —— 两份几乎一样的动画代码，迟早各自跑偏。
+    static void SlideFrom(FrameworkElement fe, double x0, double y0, double sx,
+                          int delayMs, int durMs)
+    {
+        if (fe == null) return;
+        // 位移和缩放挤在同一个 TransformGroup：FrameworkElement 只有一个 RenderTransform 槽
+        TransformGroup tg = fe.RenderTransform as TransformGroup;
+        if (tg == null || tg.Children.Count < 2)
+        {
+            tg = new TransformGroup();
+            tg.Children.Add(new TranslateTransform(0, 0));
+            tg.Children.Add(new ScaleTransform(1, 1));
+            fe.RenderTransformOrigin = new Point(0.5, 0.5);
+            fe.RenderTransform = tg;
+        }
+        TranslateTransform tt = (TranslateTransform)tg.Children[0];
+        ScaleTransform sc = (ScaleTransform)tg.Children[1];
+
+        // 先摘上一轮挂着的动画：不摘的话新动画会和残留的 base value 打架，
+        // 表现为「第二次切页时有一段不动」。
+        fe.BeginAnimation(UIElement.OpacityProperty, null);
+        tt.BeginAnimation(TranslateTransform.XProperty, null);
+        tt.BeginAnimation(TranslateTransform.YProperty, null);
+        sc.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        sc.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+
+        if (_motionOff)
+        {
+            fe.Opacity = 1;
+            tt.X = 0; tt.Y = 0;
+            sc.ScaleX = 1; sc.ScaleY = 1;
+            return;
+        }
+
+        fe.Opacity = 0;
+        tt.X = x0; tt.Y = y0;
+        sc.ScaleX = sx; sc.ScaleY = sx;
+
+        CubicEase ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        // 淡入比位移短 40ms：先看清楚位置，最后一点淡出交给位移收尾
+        DoubleAnimation oa = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(Math.Max(80, durMs - 40))) { EasingFunction = ease };
+        DoubleAnimation xa = new DoubleAnimation(x0, 0, TimeSpan.FromMilliseconds(durMs)) { EasingFunction = ease };
+        DoubleAnimation ya = new DoubleAnimation(y0, 0, TimeSpan.FromMilliseconds(durMs)) { EasingFunction = ease };
+        DoubleAnimation sa = new DoubleAnimation(sx, 1, TimeSpan.FromMilliseconds(durMs)) { EasingFunction = ease };
+        if (delayMs > 0)
+        {
+            TimeSpan d = TimeSpan.FromMilliseconds(delayMs);
+            oa.BeginTime = d; xa.BeginTime = d; ya.BeginTime = d; sa.BeginTime = d;
+        }
+        oa.Completed += (s2, e2) => { fe.BeginAnimation(UIElement.OpacityProperty, null); fe.Opacity = 1; };
+        xa.Completed += (s2, e2) => { tt.BeginAnimation(TranslateTransform.XProperty, null); tt.X = 0; };
+        ya.Completed += (s2, e2) => { tt.BeginAnimation(TranslateTransform.YProperty, null); tt.Y = 0; };
+        sa.Completed += (s2, e2) =>
+        {
+            sc.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            sc.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            sc.ScaleX = 1; sc.ScaleY = 1;
+        };
+        fe.BeginAnimation(UIElement.OpacityProperty, oa);
+        tt.BeginAnimation(TranslateTransform.XProperty, xa);
+        tt.BeginAnimation(TranslateTransform.YProperty, ya);
+        sc.BeginAnimation(ScaleTransform.ScaleXProperty, sa);
+        sc.BeginAnimation(ScaleTransform.ScaleYProperty, sa);
+    }
+
+    // 页与页之间只换中间那列，左右栏不动 —— 让它们也滑一遍会像整块界面在重载
+    static void SlideIn(FrameworkElement fe, int dir)
+    {
+        SlideFrom(fe, 24.0 * (dir >= 0 ? 1 : -1), 0, 0.992, 0, 240);
+    }
+
+    // 首页 → 内容页：三栏合成一个动作。
+    // 左栏从左推进（-72→0）、右栏从右推进（+72→0）、中间从下升起（+30→0）。
+    // 两侧同时起步（对称才像「撑开」），中间晚 60ms —— 先立两侧的框，再往里放内容。
+    static void TriIntro()
+    {
+        SlideFrom(PageRail, -72, 0, 1, 0, 240);
+        SlideFrom(PageAside, 72, 0, 1, 0, 240);
+        SlideFrom(ContentHost, 0, 30, 0.994, 60, 280);
+    }
+
+    // ---------------- 读数滚动 ----------------
+    // 卡片右上角的值从旧数字滚到新数字，而不是「啪」一下换掉。
+    // 做法：动画一个挂在 TextBlock 上的附加属性，回调里按当前值重写 Text。
+    static readonly DependencyProperty TickProperty = DependencyProperty.RegisterAttached(
+        "Tick", typeof(double), typeof(Settings),
+        new FrameworkPropertyMetadata(0.0, OnTickChanged));
+
+    static readonly DependencyProperty TickSuffixProperty = DependencyProperty.RegisterAttached(
+        "TickSuffix", typeof(string), typeof(Settings),
+        new FrameworkPropertyMetadata(""));
+
+    static void OnTickChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        TextBlock tb = d as TextBlock;
+        if (tb == null) return;
+        string suf = (string)tb.GetValue(TickSuffixProperty) ?? "";
+        tb.Text = ((long)Math.Round((double)e.NewValue)).ToString(CultureInfo.InvariantCulture) + suf;
+    }
+
+    // 「92 px」拆成 92 + " px"；拆不出来（「本机」「#3F4A5A」「Q PET 1.0.0」）就返回 false，
+    // 交回原来的整段替换。
+    static bool SplitNum(string s, out int val, out string suffix)
+    {
+        val = 0; suffix = s;
+        if (string.IsNullOrEmpty(s)) return false;
+        int i = 0;
+        while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;
+        if (i == 0) return false;
+        if (!int.TryParse(s.Substring(0, i), out val)) return false;
+        suffix = s.Substring(i);
+        return true;
+    }
+
+    static bool TickTo(TextBlock tb, string val)
+    {
+        if (_motionOff) return false;
+        int oldV, newV; string oldS, newS;
+        if (!SplitNum(tb.Text, out oldV, out oldS)) return false;
+        if (!SplitNum(val, out newV, out newS)) return false;
+        if (oldS != newS || oldV == newV) return false;   // 单位变了就是换了种说法，不滚
+        tb.SetValue(TickSuffixProperty, newS);
+        DoubleAnimation a = new DoubleAnimation(oldV, newV, TimeSpan.FromMilliseconds(360))
+        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        // 先写 base value 再摘动画：反过来的话摘掉的瞬间会闪一帧旧数字
+        a.Completed += (s2, e2) => { tb.SetValue(TickProperty, (double)newV); tb.BeginAnimation(TickProperty, null); };
+        tb.BeginAnimation(TickProperty, a);
+        return true;
+    }
+
+    // 卡片右上角的当前值：全部读内存里的当前值（未保存的改动也看得到），不再去翻配置。
+    static void RefreshDeck()
+    {
+        try
+        {
+            if (HomeDeck == null) return;
+            CharEntry ce = SelectedChar;
+            bool hasArt = ce != null && !string.IsNullOrEmpty(ce.Image) && File.Exists(ce.Image);
+            int frames = FramesOf(ce);
+
+            int bh = 79;
+            int.TryParse(CurOf("bubbleH", "79"), out bh);
+            bool bubOn = ChkBub != null && ChkBub.IsChecked == true;
+            SetReadout(TxtDeckBubble, bubOn ? bh + " px" : "已关");
+
+            string hex = "#" + _themeColor.R.ToString("X2")
+                             + _themeColor.G.ToString("X2")
+                             + _themeColor.B.ToString("X2");
+            SetReadout(TxtDeckTheme, hex);
+
+            int sz = SldSize != null ? (int)Math.Round(SldSize.Value) : 0;
+            SetReadout(TxtDeckSize, sz > 0 ? sz + " px" : "—");
+
+            SetReadout(TxtDeckAnim, CurOf("animIdle", "1") == "0" ? "已关" : "待机中");
+            SetReadout(TxtDeckVol, CurVol + "%");
+
+            int chars = 0;
+            try { chars = Directory.GetDirectories(Path.Combine(Here, "chars")).Length; }
+            catch (Exception) { }
+            SetReadout(TxtDeckImport, chars > 0 ? chars + " 个" : "—");
+            SetReadout(TxtDeckStats, "本机");
+
+            Version v = typeof(Settings).Assembly.GetName().Version;
+            string ver = v == null ? "—" : (v.Major + "." + v.Minor + "." + v.Build);
+            SetReadout(TxtDeckAbout, ver);
+            SetReadout(TxtDeckVer, "Q PET " + ver);
+
+            SetReadout(TxtDeckCharName, ce != null ? ce.Name : "未找到角色包");
+            SetReadout(TxtDeckCharMeta, ce == null ? "—"
+                : ((ce.VoiceCount > 0 ? ce.VoiceCount + " 条语音" : "0 条语音")
+                   + " │ " + (frames > 0 ? frames + " 帧动画" : "无动画")
+                   + " │ " + (hasArt ? "有立绘" : "无立绘")));
+            if (ImgDeckChar != null && ImgChar != null) ImgDeckChar.Source = ImgChar.Source;
+
+            SetReadout(TxtDeckRun, _showPetSel ? "RUNNING" : "已隐藏");
+            SetReadout(TxtDeckPos, HomePosText());
+
+            // 右栏用同一份数据再写一遍（它常驻在内容页，首页时是收起的）
+            if (ImgAsideChar != null && ImgChar != null) ImgAsideChar.Source = ImgChar.Source;
+            if (TxtAsideName != null) TxtAsideName.Text = ce != null ? ce.Name : "未找到角色包";
+            if (TxtAsideMeta != null) TxtAsideMeta.Text = ce == null ? "—"
+                : ((ce.VoiceCount > 0 ? ce.VoiceCount + " 条语音" : "0 条语音")
+                   + " │ " + (frames > 0 ? frames + " 帧动画" : "无动画"));
+            if (TxtAsideBubble != null) TxtAsideBubble.Text = bubOn ? bh + " px" : "已关";
+            if (TxtAsideVol != null) TxtAsideVol.Text = CurVol + "%";
+            if (TxtAsideTheme != null) TxtAsideTheme.Text = hex;
+            if (BdAsideSwatch != null) BdAsideSwatch.Background = new SolidColorBrush(_themeColor);
+        }
+        catch (Exception ex) { LogErr("deck", ex); }
+    }
+
     // 摘要里全部取内存里的当前值（不重读配置），所以没保存的改动也看得到
     static void RefreshHome()
     {
@@ -718,6 +1137,7 @@ static partial class Settings
             SetGauge(GsSize, (sz - 180) / 220.0);
             SetGauge(GsBub, bubOn ? bh / 220.0 : 0);
             SetGauge(GsVol, vol / 100.0);
+            RefreshDeck();
 
             if (TxtSumVer != null && TxtSumVer.Text == "Q PET")
             {
@@ -1031,6 +1451,7 @@ static partial class Settings
         if (ColTiles == null && PageHome != null && PageHome.ColumnDefinitions.Count > 2)
             ColTiles = PageHome.ColumnDefinitions[2];
         BtnHome = (Button)Win.FindName("btnHome");
+        BdHomeSep = Win.FindName("bdHomeSep") as Border;
         // 窗口拉宽拉窄时枢纽底板跟着变；内容页量不到宽度，跳过
         Win.SizeChanged += (s2, e2) => { if (_curPage == "home") FitHubPlate(); ApplySummaryDensity(); };
         BtnHomeShow = (Button)Win.FindName("btnHomeShow");
@@ -1091,6 +1512,66 @@ static partial class Settings
         SizePresets = Win.FindName("sizePresets") as StackPanel;
         PaletteBlock = Win.FindName("paletteBlock") as StackPanel;
         TileHost = Win.FindName("tilesHost") as Border;
+        // 首页卡片墙
+        HomeDeck = Win.FindName("homeDeck") as Grid;
+        ImgDeckChar = Win.FindName("imgDeckChar") as Image;
+        PageAside = Win.FindName("pageAside") as Border;
+        BdAsideSwatch = Win.FindName("bdAsideSwatch") as Border;
+        ColNav = Win.FindName("colNav") as ColumnDefinition;
+        ColAside = Win.FindName("colAside") as ColumnDefinition;
+        ImgAsideChar = Win.FindName("imgAsideChar") as Image;
+        TxtAsideName = Win.FindName("txtAsideName") as TextBlock;
+        TxtAsideMeta = Win.FindName("txtAsideMeta") as TextBlock;
+        TxtAsideBubble = Win.FindName("txtAsideBubble") as TextBlock;
+        TxtAsideVol = Win.FindName("txtAsideVol") as TextBlock;
+        TxtAsideTheme = Win.FindName("txtAsideTheme") as TextBlock;
+        PageRail = Win.FindName("pageRail") as Border;
+        ColRail = Win.FindName("colRail") as ColumnDefinition;
+        BtnRailHome = Win.FindName("btnRailHome") as Button;
+        string[] railNames = { "railBubble", "railUi", "railChar", "railAnim",
+                               "railVoice", "railImport", "railStats", "railAbout" };
+        _railBtns = new ToggleButton[railNames.Length];
+        for (int ri = 0; ri < railNames.Length; ri++)
+        {
+            ToggleButton rb = Win.FindName(railNames[ri]) as ToggleButton;
+            _railBtns[ri] = rb;
+            if (rb != null) rb.Click += Rail_Click;
+        }
+        BtnDeckShow = Win.FindName("btnDeckShow") as Button;
+        BtnDeckFolder = Win.FindName("btnDeckFolder") as Button;
+        TxtDeckBubble = Win.FindName("txtDeckBubble") as TextBlock;
+        TxtDeckTheme = Win.FindName("txtDeckTheme") as TextBlock;
+        TxtDeckSize = Win.FindName("txtDeckSize") as TextBlock;
+        TxtDeckAnim = Win.FindName("txtDeckAnim") as TextBlock;
+        TxtDeckVol = Win.FindName("txtDeckVol") as TextBlock;
+        TxtDeckImport = Win.FindName("txtDeckImport") as TextBlock;
+        TxtDeckStats = Win.FindName("txtDeckStats") as TextBlock;
+        TxtDeckAbout = Win.FindName("txtDeckAbout") as TextBlock;
+        TxtDeckCharName = Win.FindName("txtDeckCharName") as TextBlock;
+        TxtDeckCharMeta = Win.FindName("txtDeckCharMeta") as TextBlock;
+        TxtDeckRun = Win.FindName("txtDeckRun") as TextBlock;
+        TxtDeckPos = Win.FindName("txtDeckPos") as TextBlock;
+        TxtDeckVer = Win.FindName("txtDeckVer") as TextBlock;
+        TxtTopPage = Win.FindName("txtTopPage") as TextBlock;
+        // 卡片的 Click 只能在代码里挂：Settings 是静态类，XAML 的事件绑定要求实例方法
+        string[] deckNames = { "cardBubble", "cardUi", "cardChar", "cardAnim",
+                               "cardVoice", "cardImport", "cardStats", "cardAbout" };
+        // 顺序就是入场顺序（UniformGrid 里从左到右、从上到下），别改成字典免得顺序乱跳
+        string[] deckIconNames = { "iconBubble", "iconUi", "iconChar", "iconAnim",
+                                   "iconVoice", "iconImport", "iconStats", "iconAbout" };
+        _deckCards = new Button[deckNames.Length];
+        _deckIcons = new Border[deckNames.Length];
+        for (int di = 0; di < deckNames.Length; di++)
+        {
+            Button cb = Win.FindName(deckNames[di]) as Button;
+            _deckCards[di] = cb;
+            // 直接按名字取图标块，不走视觉树：隐藏窗口里内容树还没生成，遍历会落空
+            _deckIcons[di] = Win.FindName(deckIconNames[di]) as Border;
+            if (cb == null) continue;
+            cb.Click += DeckCard_Click;
+            cb.MouseEnter += DeckCard_Enter;
+            cb.MouseLeave += DeckCard_Leave;
+        }
         BtnCharFolder = Win.FindName("btnCharFolder") as Button;
         CmbChar = (ComboBox)Win.FindName("cmbChar"); CmbSet = (ComboBox)Win.FindName("cmbSet");
         CmbEvery = (ComboBox)Win.FindName("cmbEvery"); CmbFont = (ComboBox)Win.FindName("cmbFont");
@@ -1135,7 +1616,6 @@ static partial class Settings
         _showPetSel = CurOf("showPet", "1") != "0";
         _hideFsSel = CurOf("hideFullscreen", "1") != "0";
         ApplyThemeColor(_themeColor);
-        InstallButtonChamfer();      // 主按钮的右下切角（真裁切，不依赖父容器底色）
         HookComboOneClick(Win);      // 所有下拉框：点一下就展开（含各页里静态声明的那些）
         BtnBubbleColor.Click += (s, e) =>
         {
@@ -1234,8 +1714,8 @@ static partial class Settings
         int ei = 1; for (int i = 0; i < EveryVals.Length; i++) if (EveryVals[i] == CurEvery) ei = i;
         CmbEvery.SelectedIndex = ei;
 
-        // 字体候选（只列本机真装了的）
-        string[] cands = { "YouYuan", "Noto Sans SC Medium", "Noto Sans SC", "DengXian", "Microsoft YaHei UI", "KaiTi", "SimHei", "FangSong" };
+        // 字体候选（只列本机真装了的；雅黑放最前，与界面同一套字）
+        string[] cands = { "Microsoft YaHei", "Microsoft YaHei UI", "Noto Sans SC", "Noto Sans SC Medium", "DengXian", "SimHei", "KaiTi", "FangSong", "YouYuan" };
         var installed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (FontFamily ff in Fonts.SystemFontFamilies) installed.Add(ff.Source);
         var fonts = new List<string>();
@@ -1277,6 +1757,7 @@ static partial class Settings
 
         // 首页：返回、八格入口、两个主操作
         if (BtnHome != null) BtnHome.Click += (s, e) => ShowPage("home");
+        if (BtnRailHome != null) BtnRailHome.Click += (s, e) => ShowPage("home");
         string[] tileNames = { "tileBubble", "tileUi", "tileChar", "tileAnim",
                                "tileVoice", "tileImport", "tileStats", "tileAbout" };
         for (int i = 0; i < tileNames.Length; i++)
@@ -1296,6 +1777,19 @@ static partial class Settings
                         Process.Start("explorer.exe", "\"" + ce.Dir + "\"");
                 }
                 catch (Exception ex) { LogErr("homefolder", ex); }
+            };
+        if (BtnDeckShow != null)
+            BtnDeckShow.Click += (s, e) => { try { SetShowPet(!_showPetSel); RefreshHome(); } catch (Exception ex) { LogErr("deckshow", ex); } };
+        if (BtnDeckFolder != null)
+            BtnDeckFolder.Click += (s, e) =>
+            {
+                try
+                {
+                    CharEntry ce = SelectedChar;
+                    if (ce != null && !string.IsNullOrEmpty(ce.Dir) && Directory.Exists(ce.Dir))
+                        Process.Start("explorer.exe", "\"" + ce.Dir + "\"");
+                }
+                catch (Exception ex) { LogErr("deckfolder", ex); }
             };
         if (BtnCharFolder != null)
             BtnCharFolder.Click += (s, e) =>
@@ -1675,8 +2169,8 @@ static partial class Settings
     // 主题色：Accent 画刷会被样式封箱冻结（Style.Seal 会冻结 Setter 里的 Freezable），
     // 直接改 Color 会抛「只读状态」异常。正确做法：XAML 里全用 {DynamicResource Accent}，
     // 这里整体替换 Win.Resources["Accent"] 实例，所有引用自动跟着换。
-    // 界面字体：Saira Wide（可变字体切到 125% 宽，SIL OFL）打包在 exe 资源里。
-    // 用代码加载而不是在 XAML 里写 pack URI：加载失败时能退回系统字体，
+    // 界面字体：微软雅黑（系统自带，不打进 exe），经复合字体 QPet UI 统一出口。
+    // 用代码加载而不是在 XAML 里写族名：加载失败时能退回系统字体，
     // 不让整个面板因为一个字体白屏；同时把结果记进自检，避免"以为生效了"。
     static string _uiFontInfo = "未加载";
 
@@ -1736,15 +2230,6 @@ static partial class Settings
         hover = deep ? Shade(fill, 0.15) : Shade(fill, -0.18);
         press = deep ? Shade(fill, 0.28) : Shade(fill, -0.34);
     }
-
-    // ---- 主按钮的右下切角 ----
-    // 旧的切角是「盖一块父容器同色的三角」：按钮一放到 Desk / Paper 上就露出一块白，
-    // 换底色还得跟着改三角颜色。这里改成真裁切 —— Clip 只影响按钮自己的绘制，
-    // FocusRing 画在 AdornerLayer 上（不是按钮的子元素），不受影响。
-    // 用 SizeChanged 的类处理器而不是 XAML 里的 EventSetter：XamlText 是运行时解析的字符串，
-    // EventSetter 绑不到代码里的方法。
-    static Style _primaryBtnStyle;
-    static bool _chamferHooked;
 
 
 
@@ -2107,7 +2592,10 @@ static partial class Settings
     static DateTime _lastReadoutAnim = DateTime.MinValue;
     static void SetReadout(TextBlock tb, string val)
     {
-        if (tb == null || tb.Text == val) return;
+        // 有动画挂着时不能只看文本相等就早退：那可能正停在中间值上
+        if (tb == null) return;
+        if (tb.Text == val && !tb.HasAnimatedProperties) return;
+        if (TickTo(tb, val)) return;
         tb.Text = val;
         if (_motionOff) return;
         if ((DateTime.Now - _lastReadoutAnim).TotalMilliseconds < 300) return;
@@ -2125,62 +2613,21 @@ static partial class Settings
         tt.BeginAnimation(TranslateTransform.YProperty, b);
     }
 
-    // 切页：中栏（枢纽或内容页）从下方 9px 处淡入。宿主固定，标题栏、左栏、右栏磁贴不动，
-    // 所以动效只在视口里发生，不会让整屏抖。
-    static void AnimatePageIn()
+    // 内容页的卡片错峰：整块先落位（TriIntro / SlideIn 负责），再让页内的卡一层层落定。
+    // 中栏自身的位移只能交给 SlideFrom —— 这里若再动一次 ContentHost，
+    // 会把 TriIntro 挂在上面的 TransformGroup 顶成单个 TranslateTransform，
+    // 表现就是「进场时只有左右两栏在动、中间没反应」。
+    static void StaggerPageCards()
     {
         if (_motionOff) return;
         FrameworkElement host = _curPage == "home" ? HubView : (FrameworkElement)ContentHost;
         if (host == null || host.Visibility != Visibility.Visible) return;
-        TranslateTransform tt = host.RenderTransform as TranslateTransform;
-        if (tt == null)
-        {
-            tt = new TranslateTransform(0, 0);
-            host.RenderTransform = tt;
-        }
-        // 基准值必须先落到「起点」：动画时钟要到下一个渲染帧才启动，
-        // 那之前读到的是基准值，基准留 1 就会闪一帧全不透明再从头淡入。
-        // 动画结束时把基准改回终点，之后即使动画被清掉也不会跳回透明/偏移。
-        host.BeginAnimation(UIElement.OpacityProperty, null);
-        host.Opacity = 0;
-        tt.BeginAnimation(TranslateTransform.YProperty, null);
-        tt.Y = 9;
-        DoubleAnimation fadeIn = Fade(0, 1, 190);
-        fadeIn.Completed += (s2, e2) =>
-        {
-            host.BeginAnimation(UIElement.OpacityProperty, null);
-            host.Opacity = 1;
-        };
-        host.BeginAnimation(UIElement.OpacityProperty, fadeIn);
-        DoubleAnimation rise = Fade(9, 0, 210);
-        rise.Completed += (s2, e2) =>
-        {
-            tt.BeginAnimation(TranslateTransform.YProperty, null);
-            tt.Y = 0;
-        };
-        tt.BeginAnimation(TranslateTransform.YProperty, rise);
-
-        // 卡片错峰入场：宿主淡入负责「页面来了」，错峰负责「内容一层层落定」。
-        // 只动 Opacity>0.99 的卡：上一轮没播完的不重置，避免连环重启。
         try
         {
             int ci = 0;
             StaggerCards(host, ref ci);
         }
-        catch (Exception ex) { LogErr("AnimatePageIn", ex); }
-
-        // 护栏：窗口最小化 / 被遮挡时动画时钟可能不推进，Completed 不触发就会永远半透明。
-        // 400ms 后无条件落到终态（此时正常动画早就结束了）。
-        DispatcherTimer guard = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(420) };
-        guard.Tick += (s2, e2) =>
-        {
-            guard.Stop();
-            host.BeginAnimation(UIElement.OpacityProperty, null);
-            host.Opacity = 1;
-            tt.BeginAnimation(TranslateTransform.YProperty, null);
-            tt.Y = 0;
-        };
-        guard.Start();
+        catch (Exception ex) { LogErr("StaggerPageCards", ex); }
     }
 
     // 卡片错峰：从可视树里收 Card，逐张延迟 45ms 淡入 + 上移 7px，最多 7 张（再往后不加延迟）。
@@ -2258,7 +2705,7 @@ static partial class Settings
             TranslateTransform tt = LblSaved.RenderTransform as TranslateTransform;
             if (tt == null) { tt = new TranslateTransform(0, 0); LblSaved.RenderTransform = tt; }
             LblSaved.BeginAnimation(UIElement.OpacityProperty, null);
-            LblSaved.Opacity = 0;                       // 同 AnimatePageIn：基准先落起点，避免闪一帧
+            LblSaved.Opacity = 0;                       // 同进场动效：基准先落起点，避免闪一帧
             tt.BeginAnimation(TranslateTransform.YProperty, null);
             tt.Y = 5;
             DoubleAnimation noteIn = Fade(0, 1, 180);
@@ -2277,7 +2724,7 @@ static partial class Settings
                 tt.Y = 0;
             };
             tt.BeginAnimation(TranslateTransform.YProperty, noteRise);
-            // 同 AnimatePageIn：状态条也不能卡在半透明
+            // 同进场动效：状态条也不能卡在半透明
             DispatcherTimer ng = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
             ng.Tick += (s2, e2) =>
             {
@@ -2890,12 +3337,43 @@ static partial class Settings
             ToggleButton probe = Win.FindName("tileAbout") as ToggleButton;
             if (probe != null) probe.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             sb.AppendLine("  磁贴接线: 点「08 关于」→ " + (PageAbout.Visibility == Visibility.Visible ? "已切到关于页 ✓" : "没反应 ✗"));
+            // 动效挂点：模板里的两个命名变换必须真能取到 —— 取不到说明 x:Name 没进模板命名域，
+            // 悬停上浮 / 按下回弹会静默失效（不报错，就是不动）。图标块同理，靠 Tag=ic 找。
+            ShowPage("home");
+            Button c0 = _deckCards != null && _deckCards.Length > 0 ? _deckCards[0] : null;
+            if (c0 != null) { c0.ApplyTemplate(); c0.UpdateLayout(); }   // 不先应用模板，命名域和内容树都是空的
+            object liftObj = c0 != null && c0.Template != null ? c0.Template.FindName("lift", c0) : null;
+            object csObj = c0 != null && c0.Template != null ? c0.Template.FindName("cs", c0) : null;
+            Border iconTile = c0 != null ? IconOf(c0) : null;
+            Style readoutStyle = Win.Resources["DeckReadout"] as Style;
+            sb.AppendLine("  动效挂点: 上浮变形=" + (liftObj is TranslateTransform ? "✓" : "✗")
+                + "，按下变形=" + (csObj is ScaleTransform ? "✓" : "✗")
+                + "，图标块=" + (iconTile != null ? "✓" : "✗")
+                + "，读数样式=" + (TxtDeckBubble != null && readoutStyle != null && TxtDeckBubble.Style == readoutStyle ? "✓" : "✗"));
+
             ShowPage("char");
             sb.AppendLine("  内容页: 首页仍可见=" + (PageHome.Visibility == Visibility.Visible)
                 + "，枢纽收起=" + (HubView != null && HubView.Visibility == Visibility.Collapsed)
                 + "，内容区出现=" + (ContentHost.Visibility == Visibility.Visible)
                 + "，返回链接出现=" + (BtnHome.Visibility == Visibility.Visible)
                 + "，磁贴高亮=" + TileHighlighted("char"));
+            sb.AppendLine("  三栏: 左栏列=" + (ColRail != null ? ColRail.Width.Value.ToString("0") : "null")
+                + "，左栏可见=" + (PageRail != null ? PageRail.Visibility.ToString() : "null")
+                + "，右栏列=" + (ColAside != null ? ColAside.Width.Value.ToString("0") : "null")
+                + "，右栏可见=" + (PageAside != null ? PageAside.Visibility.ToString() : "null"));
+            // 三栏进场：三个容器都得有 TransformGroup。没有就说明动画压根没挂上，
+            // 表现是「点卡片直接跳页」而不报错。_motionOff 下走的是复位分支，终态必须全 0。
+            sb.AppendLine("  进场起点: " + MotionStartProbe("左栏", PageRail, -72, 0)
+                + MotionStartProbe("中栏", ContentHost, 0, 30) + MotionStartProbe("右栏", PageAside, 72, 0));
+            // 返回键在标题栏里：不加 IsHitTestVisibleInChrome 会被当成拖动区，点了只会拖窗口
+            bool homeClickable = BtnHome != null
+                && System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(BtnHome);
+            string railOn = "";
+            if (_railBtns != null)
+                foreach (ToggleButton rb in _railBtns)
+                    if (rb != null && rb.IsChecked == true) railOn = rb.Uid;
+            sb.AppendLine("  返回键: 标题栏可点=" + (homeClickable ? "✓" : "✗")
+                + "，左导航高亮=" + (railOn == "char" ? "char ✓" : "「" + railOn + "」✗"));
 
             // 立绘板铺满中栏 = 视口尺寸交给布局，代码不再写死宽高（写死就会退回「小方块」）
             ShowPage("home");
@@ -3036,9 +3514,15 @@ static partial class Settings
         foreach (object o in CmbSet.Items) sfxNames.Add(o.ToString());
         sb.AppendLine("  音效组 " + CmbSet.Items.Count + " 个: " + string.Join(" / ", sfxNames.ToArray()));
         sb.AppendLine("  台词库 " + VoiceLines.Count + " 条；点击模式=" + (CmbClickMode.SelectedIndex == 1 ? "顺序" : "随机"));
+        // 碎块检查：每格面积至少要放得下「74 宽 × 40 高」的名字区，否则就是一块认不出的色块。
+        // 画 14 个时右下角全是这种（只剩图标、名字被裁掉），这条断言就是防它回潮。
+        int crumbs = 0;
+        foreach (AppTile t in _appTiles)
+            if (t.Box != null && (t.Box.Width < 74 || t.Box.Height < 40)) crumbs++;
         sb.AppendLine("  按键卡: 热力格=" + _keyCells.Count
             + " 数据=" + _keyData.Count
-            + "  方格=" + _appTiles.Count + "  实时定时器=" + (_liveTimer != null));
+            + "  方格=" + _appTiles.Count + "  碎块=" + crumbs + (crumbs == 0 ? " ✓" : " ✗")
+            + "  实时定时器=" + (_liveTimer != null));
         sb.AppendLine("  立绘预览=" + (ImgChar.Source != null) + "  大小预览=" + (ImgSize.Source != null) + "  气泡预览=" + (ImgBub.Source != null));
         // 未保存提示：四路都要认得出来 —— 音量（走 overrides）、角色高度（存 char.json）、
         // 动画幅度（存 char.json）、下拉框选择（角色目录）。任一路漏了，用户就会觉得「改了没反应」。
@@ -3111,7 +3595,7 @@ static partial class Settings
         catch (Exception ex) { sb.AppendLine("  承重线: 异常 " + ex.Message); }
 
         // 主按钮三态：默认 → 悬停 → 按下必须逐级可分（等价于「看得见反馈」），
-        // 并且切角必须真的裁上了（Clip 为空说明 InstallButtonChamfer 没接上）。
+        // 并且模板底板的圆角必须真的生效（换成 0 说明有人把 CornerRadius 改回去了）。
         try
         {
             Color fillB = ((SolidColorBrush)Win.Resources["AccentSolid"]).Color;
@@ -3122,14 +3606,18 @@ static partial class Settings
             bool stepB = HexOf(hovB) != HexOf(fillB) && HexOf(prsB) != HexOf(hovB);
             bool readB = Contrast(inkB, softB) >= 4.5;
             Button probeB = Win.FindName("btnSave") as Button;
-            ApplyChamferIfPrimary(probeB);
-            bool clipB = probeB != null && probeB.Clip != null
-                         && probeB.Clip.Bounds.Width > 0 && probeB.Clip.Bounds.Height > 0;
+            bool roundB = false;
+            if (probeB != null)
+            {
+                probeB.ApplyTemplate();
+                var bgB = probeB.Template.FindName("bg", probeB) as Border;
+                roundB = bgB != null && bgB.CornerRadius.TopLeft >= 8;
+            }
             sb.AppendLine("  按钮三态: " + HexOf(fillB) + " → " + HexOf(hovB) + " → " + HexOf(prsB)
                 + " │ 选中底 " + HexOf(softB) + " 主题字 "
                 + Contrast(inkB, softB).ToString("0.00", CultureInfo.InvariantCulture) + ":1"
-                + " │ 切角裁切=" + (clipB ? "已应用" : "缺失")
-                + (stepB && readB && clipB ? "  ✓" : "  ✗"));
+                + " │ 按钮圆角=" + (roundB ? "8px 已应用" : "缺失")
+                + (stepB && readB && roundB ? "  ✓" : "  ✗"));
         }
         catch (Exception ex) { sb.AppendLine("  按钮三态: 异常 " + ex.Message); }
 
@@ -3322,16 +3810,9 @@ static partial class Settings
         // 所以这里先触发、再空转 300ms、最后断言「稳态」（而不是断言中间帧）。
         try
         {
+            // 页与页之间只换中间：这一跳验证的是 SlideIn，顺带让上一轮三栏进场跑完
             ShowPage("ui");
-            // 首帧必须是「透明 + 下移」：基准值落在起点，否则会闪一帧全不透明
-            double pop0 = ContentHost != null ? ContentHost.Opacity : -1;
-            TranslateTransform ptt0 = ContentHost != null ? ContentHost.RenderTransform as TranslateTransform : null;
-            double pty0 = ptt0 != null ? ptt0.Y : -1;
-            PumpFor(300);
-            TranslateTransform ptt = ContentHost != null ? ContentHost.RenderTransform as TranslateTransform : null;
-            double pop = ContentHost != null ? ContentHost.Opacity : -1;
-            bool pageAnim = ptt != null && pop0 < 0.2 && pty0 > 1.0
-                            && Math.Abs(ptt.Y) < 0.01 && Math.Abs(pop - 1.0) < 0.01;
+            PumpFor(400);   // 动画按合成时钟推进，不空转就只会读到起始帧
 
             string knobInfo = "—";
             bool knobOk = false;
@@ -3399,15 +3880,14 @@ static partial class Settings
             HideSavedNote(false);
             bool noteHide = LblSaved == null || LblSaved.Visibility != Visibility.Visible;
 
-            sb.AppendLine("  动效: 切页淡入 " + (pageAnim ? "✓" : "✗")
-                + "(" + pop0.ToString("0.00") + "→" + pop.ToString("0.00")
-                + " / Y" + pty0.ToString("0.0") + "→" + (ptt != null ? ptt.Y.ToString("0.0") : "?") + ")"
-                + " │ 开关滑动 " + knobInfo + (knobOk ? " ✓" : " ✗")
+            sb.AppendLine("  进场落位: " + MotionRestProbe("左栏", PageRail)
+                + MotionRestProbe("中栏", ContentHost) + MotionRestProbe("右栏", PageAside));
+            sb.AppendLine("  动效: 开关滑动 " + knobInfo + (knobOk ? " ✓" : " ✗")
                 + " │ 列表选中 " + (dimFill == null ? "缺 ✗"
                     : "压暗=" + dimFill.Opacity.ToString("0.00")
                       + " 白条=" + (sbs != null ? sbs.ScaleY.ToString("0.00") : "?")
-                      + (tileOk ? " ✓" : " ✗")
-                + " │ 右栏图标 " + icoShown + "/8 " + (icoShown == 8 ? "✓" : "✗"))
+                      + (tileOk ? " ✓" : " ✗"))
+                + " │ 右栏图标 " + icoShown + "/8 " + (icoShown == 8 ? "✓" : "✗")
                 + " │ 按压缩放 " + (tsTl != null && psBtn != null ? "✓" : "✗")
                 + " │ 导航淡入 " + (navSel != null ? "✓" : "✗")
                 + " │ 滑块拇指 " + (thS != null ? "✓" : "✗")
@@ -3419,7 +3899,7 @@ static partial class Settings
         int errs = File.Exists(elog) ? File.ReadAllLines(elog).Length : 0;
         sb.AppendLine("  界面字体 = " + _uiFontInfo);
         // 字体审计：窗口里每个文字控件都必须用同一支字体族（图标用 MDL2、hex 用 Consolas，属例外）。
-        // 之前「下拉框里的汉字是宋体、标签是雅黑」的根因就是只写了 Saira Wide、汉字各自由系统回退。
+        // 之前「下拉框里的汉字是宋体、标签是雅黑」的根因就是只写了拉丁字体、汉字各自由系统回退。
         try
         {
             string want = UiFace != null ? UiFace.Source : "";
@@ -3473,9 +3953,10 @@ static partial class Settings
          它上面的字必须用 OnAccent，由 ApplyThemeColor 按亮度切换墨或白。
          浅色主题里不能拿信号色当线或字（黄在白底上只有 1.1:1）。
          ============================================================ -->
-    <!-- 复合字体：拉丁 Saira Wide、汉字雅黑。直接写 Saira Wide 的话汉字会由系统各自回退，
-         粗体落雅黑、常规落宋体，看起来像两套字（见 Fonts/QPetUI.CompositeFont）。 -->
-    <FontFamily x:Key=""UiFont"">pack://application:,,,/Fonts/#QPet UI</FontFamily>
+    <!-- 界面字体：直接写系统族名（Windows 自带的微软雅黑）。
+         不要改回 pack://application:,,,/Fonts/#... 那套复合字体 —— 这个工程的资源打不进 exe，
+         改了也不会生效（见 PetSettings.csproj 里的说明）。 -->
+    <FontFamily x:Key=""UiFont"">Microsoft YaHei</FontFamily>
     <!-- 三层明度，从上到下：桌（标题栏/左右栏/底栏）-> 纸（中栏工作面）-> 白（板/输入框）。
          白只留给「压在最上面那一层」，所以整屏不会是一片白：白永远被灰纸框住。
          色相取中性偏冷，不用暖米：信号色是 #005FB8、墨是近黑，都在冷端；
@@ -3516,6 +3997,168 @@ static partial class Settings
          有了这条边深色块才有厚度，不闷。 -->
     <SolidColorBrush x:Key=""InkSolid"" Color=""#212529""/>
 
+    <!-- ===== 卡片墙令牌（D 版首页） =====
+         底 #F7F8FB / 卡 #FFF / 描边 #E6E8ED / 主字 #1F2430 / 次字 #8A8F98 / 弱字 #B0B4BC。
+         和旧的 Desk/Paper/Panel 三层灰并存：详情页还没换完，旧令牌不动，免得半路串色。 -->
+    <SolidColorBrush x:Key=""HomeBg"" Color=""#F7F8FB""/>
+    <SolidColorBrush x:Key=""CardBg"" Color=""#FFFFFF""/>
+    <SolidColorBrush x:Key=""CardEdge"" Color=""#E6E8ED""/>
+    <SolidColorBrush x:Key=""CardEdgeHover"" Color=""#C2CCDC""/>
+    <SolidColorBrush x:Key=""CardInk"" Color=""#1F2430""/>
+    <SolidColorBrush x:Key=""CardSub"" Color=""#8A8F98""/>
+    <SolidColorBrush x:Key=""CardWeak"" Color=""#B0B4BC""/>
+    <!-- 八色图标底：统一取 600 档，白图标压上去对比够（≥3.0:1），也不至于艳到抢字 -->
+    <SolidColorBrush x:Key=""IconTile"" Color=""#EFF2F7""/>
+    <SolidColorBrush x:Key=""IconTileHover"" Color=""#E2E8F1""/>
+    <SolidColorBrush x:Key=""TintBlue"" Color=""#378ADD""/>
+    <SolidColorBrush x:Key=""TintTeal"" Color=""#1D9E75""/>
+    <SolidColorBrush x:Key=""TintPurple"" Color=""#7F77DD""/>
+    <SolidColorBrush x:Key=""TintCoral"" Color=""#D85A30""/>
+    <SolidColorBrush x:Key=""TintAmber"" Color=""#BA7517""/>
+    <SolidColorBrush x:Key=""TintPink"" Color=""#D4537E""/>
+    <SolidColorBrush x:Key=""TintGreen"" Color=""#639922""/>
+    <SolidColorBrush x:Key=""TintGray"" Color=""#5F5E5A""/>
+
+    <!-- 卡片按钮：白卡 + 12 圆角 + 1px 线。悬停只换线色和一层 1% 白，不位移不投影；
+         按下整块缩到 0.985（和磁贴同一套手感）。 -->
+    <Style x:Key=""CardButton"" TargetType=""Button"">
+      <Setter Property=""Background"" Value=""{DynamicResource CardBg}""/>
+      <Setter Property=""BorderBrush"" Value=""{DynamicResource CardEdge}""/>
+      <Setter Property=""Foreground"" Value=""{DynamicResource CardInk}""/>
+      <Setter Property=""Cursor"" Value=""Hand""/>
+      <Setter Property=""FocusVisualStyle"" Value=""{x:Null}""/>
+      <Setter Property=""HorizontalContentAlignment"" Value=""Stretch""/>
+      <Setter Property=""VerticalContentAlignment"" Value=""Stretch""/>
+      <Setter Property=""Template""><Setter.Value><ControlTemplate TargetType=""Button"">
+        <Grid RenderTransformOrigin=""0.5,0.5"">
+          <!-- 平移和缩放要挤在同一个 TransformGroup 里：Grid 只有一个 RenderTransform 槽。
+               lift 负责悬停上浮 4px，cs 负责按下回弹，两者互不覆盖。 -->
+          <Grid.RenderTransform>
+            <TransformGroup>
+              <TranslateTransform x:Name=""lift"" X=""0"" Y=""0""/>
+              <ScaleTransform x:Name=""cs"" ScaleX=""1"" ScaleY=""1""/>
+            </TransformGroup>
+          </Grid.RenderTransform>
+          <Border x:Name=""bg"" Background=""{TemplateBinding Background}""
+                  BorderBrush=""{TemplateBinding BorderBrush}"" BorderThickness=""1"" CornerRadius=""12""/>
+          <Border x:Name=""haze"" Background=""#FBFCFE"" CornerRadius=""12"" Opacity=""0"" IsHitTestVisible=""False""/>
+          <ContentPresenter Margin=""18,16,18,16""/>
+        </Grid>
+        <ControlTemplate.Triggers>
+          <Trigger Property=""IsMouseOver"" Value=""True"">
+            <Setter TargetName=""bg"" Property=""BorderBrush"" Value=""{DynamicResource CardEdgeHover}""/>
+            <Trigger.EnterActions>
+              <BeginStoryboard><Storyboard>
+                <DoubleAnimation Storyboard.TargetName=""haze"" Storyboard.TargetProperty=""Opacity""
+                                 To=""1"" Duration=""0:0:0.12""/>
+                <!-- 抬 4px 而不是 8px：八张卡挤在一屏里，抬多了会撞上面一张 -->
+                <DoubleAnimation Storyboard.TargetName=""lift"" Storyboard.TargetProperty=""Y""
+                                 To=""-4"" Duration=""0:0:0.16"">
+                  <DoubleAnimation.EasingFunction><CubicEase EasingMode=""EaseOut""/></DoubleAnimation.EasingFunction>
+                </DoubleAnimation>
+              </Storyboard></BeginStoryboard>
+            </Trigger.EnterActions>
+            <Trigger.ExitActions>
+              <BeginStoryboard><Storyboard>
+                <DoubleAnimation Storyboard.TargetName=""haze"" Storyboard.TargetProperty=""Opacity""
+                                 To=""0"" Duration=""0:0:0.16""/>
+                <!-- 回落比抬起慢 40ms：离开时「缓一口气」，不像是被弹回去的 -->
+                <DoubleAnimation Storyboard.TargetName=""lift"" Storyboard.TargetProperty=""Y""
+                                 To=""0"" Duration=""0:0:0.2"">
+                  <DoubleAnimation.EasingFunction><CubicEase EasingMode=""EaseOut""/></DoubleAnimation.EasingFunction>
+                </DoubleAnimation>
+              </Storyboard></BeginStoryboard>
+            </Trigger.ExitActions>
+          </Trigger>
+          <Trigger Property=""IsPressed"" Value=""True"">
+            <Trigger.EnterActions>
+              <BeginStoryboard><Storyboard>
+                <DoubleAnimation Storyboard.TargetName=""cs"" Storyboard.TargetProperty=""ScaleX""
+                                 To=""0.985"" Duration=""0:0:0.09""/>
+                <DoubleAnimation Storyboard.TargetName=""cs"" Storyboard.TargetProperty=""ScaleY""
+                                 To=""0.985"" Duration=""0:0:0.09""/>
+              </Storyboard></BeginStoryboard>
+            </Trigger.EnterActions>
+            <Trigger.ExitActions>
+              <BeginStoryboard><Storyboard>
+                <DoubleAnimation Storyboard.TargetName=""cs"" Storyboard.TargetProperty=""ScaleX""
+                                 To=""1"" Duration=""0:0:0.22""/>
+                <DoubleAnimation Storyboard.TargetName=""cs"" Storyboard.TargetProperty=""ScaleY""
+                                 To=""1"" Duration=""0:0:0.22""/>
+              </Storyboard></BeginStoryboard>
+            </Trigger.ExitActions>
+          </Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+
+
+    <!-- 内容页左导航：编号 + 页名，当前页主题浅底 + 左竖条。
+         和首页卡片同一套圆角语言，不再用旧 NavItem 那种「整行压主题色」的做法。 -->
+    <Style x:Key=""RailItem"" TargetType=""ToggleButton"">
+      <Setter Property=""Height"" Value=""34""/>
+      <Setter Property=""Cursor"" Value=""Hand""/>
+      <Setter Property=""FocusVisualStyle"" Value=""{x:Null}""/>
+      <Setter Property=""Template""><Setter.Value><ControlTemplate TargetType=""ToggleButton"">
+        <Grid Background=""Transparent"">
+          <Border x:Name=""bg"" CornerRadius=""8"" Background=""Transparent""/>
+          <Border x:Name=""bar"" Width=""3"" Height=""16"" CornerRadius=""1.5"" HorizontalAlignment=""Left""
+                  Background=""{DynamicResource AccentSolid}"" Opacity=""0""/>
+          <Grid Margin=""14,0,10,0"">
+            <Grid.ColumnDefinitions><ColumnDefinition Width=""22""/><ColumnDefinition Width=""*""/></Grid.ColumnDefinitions>
+            <TextBlock x:Name=""num"" Text=""{TemplateBinding Tag}"" FontSize=""10.5""
+                       Foreground=""{DynamicResource CardWeak}"" VerticalAlignment=""Center""/>
+            <TextBlock x:Name=""tx"" Grid.Column=""1"" Text=""{TemplateBinding Content}"" FontSize=""12.5""
+                       Foreground=""{DynamicResource Ink2}"" VerticalAlignment=""Center""
+                       TextTrimming=""CharacterEllipsis""/>
+          </Grid>
+        </Grid>
+        <ControlTemplate.Triggers>
+          <Trigger Property=""IsMouseOver"" Value=""True"">
+            <Setter TargetName=""bg"" Property=""Background"" Value=""#0C1F2430""/>
+          </Trigger>
+          <Trigger Property=""IsChecked"" Value=""True"">
+            <Setter TargetName=""bg"" Property=""Background"" Value=""{DynamicResource AccentSoft}""/>
+            <Setter TargetName=""bar"" Property=""Opacity"" Value=""1""/>
+            <Setter TargetName=""tx"" Property=""Foreground"" Value=""{DynamicResource AccentInk}""/>
+            <Setter TargetName=""tx"" Property=""FontWeight"" Value=""SemiBold""/>
+            <Setter TargetName=""num"" Property=""Foreground"" Value=""{DynamicResource AccentInk}""/>
+          </Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+
+    <!-- D 版图标：八页统一成一个色相。原来八个饱和色相并排，眼睛不知道该看哪；
+         现在底色是主题色的极浅档、描边是主题色压深档，整屏只剩「主题色」一种颜色。
+         悬停反绑父按钮的 IsMouseOver —— 图标在 Content 里，模板的 TargetName 够不着它。 -->
+    <Style x:Key=""IconTileBox"" TargetType=""Border"">
+      <Setter Property=""Width"" Value=""44""/>
+      <Setter Property=""Height"" Value=""44""/>
+      <Setter Property=""CornerRadius"" Value=""11""/>
+      <Setter Property=""HorizontalAlignment"" Value=""Left""/>
+      <Setter Property=""Background"" Value=""{DynamicResource IconTile}""/>
+      <Style.Triggers>
+        <DataTrigger Binding=""{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}"" Value=""True"">
+          <Setter Property=""Background"" Value=""{DynamicResource IconTileHover}""/>
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+
+    <!-- 卡片右上角的当前值：平时是墨色，鼠标进卡片才转主题色。
+         只有 Foreground 一处变化，不给数字加粗加大，避免整卡在悬停时抖。 -->
+    <Style x:Key=""DeckReadout"" TargetType=""TextBlock"">
+      <Setter Property=""FontSize"" Value=""15""/>
+      <Setter Property=""FontWeight"" Value=""SemiBold""/>
+      <Setter Property=""Foreground"" Value=""{DynamicResource CardInk}""/>
+      <Setter Property=""HorizontalAlignment"" Value=""Right""/>
+      <Setter Property=""VerticalAlignment"" Value=""Top""/>
+      <Setter Property=""Margin"" Value=""0,12,0,0""/>
+      <Style.Triggers>
+        <DataTrigger Binding=""{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}"" Value=""True"">
+          <Setter Property=""Foreground"" Value=""{DynamicResource AccentInk}""/>
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
 
     <!-- 字号：眉标 10.5 / 脚注 11 / 说明 12 / 正文 13 / 卡片标题 15 / 页面标题 30 -->
     <Style x:Key=""Eyebrow"" TargetType=""TextBlock"">
@@ -3524,7 +4167,7 @@ static partial class Settings
       <Setter Property=""Foreground"" Value=""{DynamicResource Ink2}""/>
     </Style>
     <Style x:Key=""H1"" TargetType=""TextBlock"">
-      <Setter Property=""FontSize"" Value=""34""/>
+      <Setter Property=""FontSize"" Value=""22""/>
       <Setter Property=""FontWeight"" Value=""Bold""/>
       <Setter Property=""Foreground"" Value=""{DynamicResource Ink}""/>
     </Style>
@@ -3535,7 +4178,7 @@ static partial class Settings
     </Style>
     <Style x:Key=""Sub"" TargetType=""TextBlock"">
       <Setter Property=""FontSize"" Value=""12""/>
-      <Setter Property=""Foreground"" Value=""{DynamicResource Ink2}""/>
+      <Setter Property=""Foreground"" Value=""{DynamicResource CardSub}""/>
       <Setter Property=""TextWrapping"" Value=""Wrap""/>
       <Setter Property=""Margin"" Value=""0,2,0,0""/>
     </Style>
@@ -3544,14 +4187,15 @@ static partial class Settings
     <!-- 中栏工作面的斜纹：只画线，底色交给容器的 Background（笔刷自带的填充在 Tile 模式下不上色） -->
     <!-- 深色块上的斜纹：同一套 7px 网格，线换成 7% 白，压在墨底上才看得见 -->
     <!-- 白板：直角、细线、无投影。相邻两块用 -1 外边距叠成一根线。 -->
+    <!-- D 版：设置组从「一条底线」换成白卡。卡内仍用 Divider 分行，
+         但因为卡本身有边，行线要更淡（#F0F2F6），否则一张卡里横线太多像表格。 -->
     <Style x:Key=""Card"" TargetType=""Border"">
-      <Setter Property=""Background"" Value=""Transparent""/>
-      <Setter Property=""BorderBrush"" Value=""#D9DDE4""/>
-      <Setter Property=""BorderThickness"" Value=""0,0,0,1""/>
-      <Setter Property=""CornerRadius"" Value=""0""/>
-      <!-- 不画盒子，只画一条底线：六行设置在一屏里靠线分，不靠卡片堆 -->
-      <Setter Property=""Padding"" Value=""0,13""/>
-      <Setter Property=""Margin"" Value=""0,0,0,-1""/>
+      <Setter Property=""Background"" Value=""{DynamicResource CardBg}""/>
+      <Setter Property=""BorderBrush"" Value=""{DynamicResource CardEdge}""/>
+      <Setter Property=""BorderThickness"" Value=""1""/>
+      <Setter Property=""CornerRadius"" Value=""12""/>
+      <Setter Property=""Padding"" Value=""20,10""/>
+      <Setter Property=""Margin"" Value=""0,0,0,12""/>
     </Style>
 
     <!-- 虚线取景框：立绘 / 气泡预览。边框不能靠 Border 画（Border 不支持虚线），用 Rectangle 叠在最上层 -->
@@ -3581,6 +4225,16 @@ static partial class Settings
     </Style>
 
     <!-- 键盘焦点圈：方角、2px 墨，画在控件外围不影响布局 -->
+    <!-- 按钮的焦点圈：按钮已改成 8px 圆角，外圈也得跟着圆，否则方框套圆角很突兀 -->
+    <Style x:Key=""FocusRingRound"">
+      <Setter Property=""Control.Template"">
+        <Setter.Value><ControlTemplate>
+          <Rectangle Margin=""-3"" StrokeThickness=""2"" RadiusX=""11"" RadiusY=""11""
+                     Stroke=""{DynamicResource Ink}"" SnapsToDevicePixels=""True""/>
+        </ControlTemplate></Setter.Value>
+      </Setter>
+    </Style>
+
     <Style x:Key=""FocusRing"">
       <Setter Property=""Control.Template"">
         <Setter.Value><ControlTemplate>
@@ -3601,7 +4255,7 @@ static partial class Settings
       <Setter Property=""FocusVisualStyle"" Value=""{StaticResource FocusRing}""/>
       <Setter Property=""Template""><Setter.Value><ControlTemplate TargetType=""TextBox"">
         <Border x:Name=""b"" Background=""{TemplateBinding Background}"" BorderBrush=""{DynamicResource Rule}""
-                BorderThickness=""1"" CornerRadius=""0"">
+                BorderThickness=""1"" CornerRadius=""8"">
           <ScrollViewer x:Name=""PART_ContentHost"" Margin=""{TemplateBinding Padding}""
                         VerticalAlignment=""Center"" Focusable=""False""/>
         </Border>
@@ -3620,10 +4274,9 @@ static partial class Settings
       </ControlTemplate></Setter.Value></Setter>
     </Style>
 
-    <!-- 主按钮：主题色填充 + 右下 8px 切角。
-         切角是真裁切（C# 里 InstallButtonChamfer 给 PrimaryButton 上 Clip），
-         不再是「盖一块父容器同色的三角」，所以按钮放到任何底色上都成立。
-         装饰只留切角这一个信号；悬停/按下用主题色现算的两档深色，白擦入和底部重线都已删掉。 -->
+    <!-- 主按钮：主题色填充 + 8px 圆角（和卡片同族，12px 卡片配 8px 按钮 = 同心）。
+         以前的右下切角已删：切角是「工业/终端」的语言，和这一版圆角白卡凑在一起像两套系统。
+         悬停/按下仍用主题色现算的两档深色，装饰只留这一个色块。 -->
     <Style x:Key=""PrimaryButton"" TargetType=""Button"">
       <Setter Property=""Background"" Value=""{DynamicResource AccentSolid}""/>
       <Setter Property=""Foreground"" Value=""{DynamicResource OnAccentSolid}""/>
@@ -3631,13 +4284,13 @@ static partial class Settings
       <Setter Property=""Padding"" Value=""22,0""/>
       <Setter Property=""Cursor"" Value=""Hand""/>
       <Setter Property=""BorderThickness"" Value=""0""/>
-      <Setter Property=""FocusVisualStyle"" Value=""{StaticResource FocusRing}""/>
+      <Setter Property=""FocusVisualStyle"" Value=""{StaticResource FocusRingRound}""/>
       <Setter Property=""Template""><Setter.Value><ControlTemplate TargetType=""Button"">
         <Grid RenderTransformOrigin=""0.5,0.5"" UseLayoutRounding=""True"" SnapsToDevicePixels=""True"">
           <Grid.RenderTransform><ScaleTransform x:Name=""ps"" ScaleX=""1"" ScaleY=""1""/></Grid.RenderTransform>
-          <Border x:Name=""bg"" Background=""{TemplateBinding Background}""/>
+          <Border x:Name=""bg"" Background=""{TemplateBinding Background}"" CornerRadius=""8""/>
           <!-- 发丝边：深色块靠这 12% 的一条白线才有厚度 -->
-          <Border BorderBrush=""#1FFFFFFF"" BorderThickness=""1"" IsHitTestVisible=""False""/>
+          <Border BorderBrush=""#1FFFFFFF"" BorderThickness=""1"" CornerRadius=""8"" IsHitTestVisible=""False""/>
           <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center"" Margin=""{TemplateBinding Padding}""/>
         </Grid>
         <ControlTemplate.Triggers>
@@ -3681,11 +4334,11 @@ static partial class Settings
       <Setter Property=""Padding"" Value=""18,0""/>
       <Setter Property=""Cursor"" Value=""Hand""/>
       <Setter Property=""BorderThickness"" Value=""0""/>
-      <Setter Property=""FocusVisualStyle"" Value=""{StaticResource FocusRing}""/>
+      <Setter Property=""FocusVisualStyle"" Value=""{StaticResource FocusRingRound}""/>
       <Setter Property=""Template""><Setter.Value><ControlTemplate TargetType=""Button"">
         <Grid RenderTransformOrigin=""0.5,0.5"" UseLayoutRounding=""True"" SnapsToDevicePixels=""True"">
           <Grid.RenderTransform><ScaleTransform x:Name=""ss"" ScaleX=""1"" ScaleY=""1""/></Grid.RenderTransform>
-          <Border x:Name=""bg"" Background=""{TemplateBinding Background}"" BorderBrush=""#C9CED6"" BorderThickness=""1""/>
+          <Border x:Name=""bg"" Background=""{TemplateBinding Background}"" BorderBrush=""#C9CED6"" BorderThickness=""1"" CornerRadius=""8""/>
           <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center"" Margin=""{TemplateBinding Padding}""/>
         </Grid>
         <ControlTemplate.Triggers>
@@ -3862,7 +4515,7 @@ static partial class Settings
         <Grid>
           <Border x:Name=""bg"" Background=""{DynamicResource Panel}""
                   BorderBrush=""{TemplateBinding BorderBrush}"" BorderThickness=""{TemplateBinding BorderThickness}""
-                  CornerRadius=""0"" SnapsToDevicePixels=""True"">
+                  CornerRadius=""8"" SnapsToDevicePixels=""True"">
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width=""*""/>
@@ -3925,7 +4578,7 @@ static partial class Settings
                  Placement=""Bottom"" AllowsTransparency=""True"" Focusable=""False""
                  PopupAnimation=""Fade"" VerticalOffset=""3"">
             <Border Background=""{DynamicResource Panel}"" BorderBrush=""#C9CED6"" BorderThickness=""1""
-                    CornerRadius=""0"" MinWidth=""{TemplateBinding ActualWidth}"">
+                    CornerRadius=""10"" MinWidth=""{TemplateBinding ActualWidth}"">
               <ScrollViewer MaxHeight=""280""><ItemsPresenter/></ScrollViewer>
             </Border>
           </Popup>
@@ -4061,7 +4714,7 @@ static partial class Settings
               <Thumb Width=""5"" Height=""24"" Cursor=""Hand"">
                 <Thumb.Template><ControlTemplate TargetType=""Thumb"">
                   <Border x:Name=""tb"" Background=""{DynamicResource AccentSolid}"" SnapsToDevicePixels=""True""
-                          RenderTransformOrigin=""0.5,0.5"">
+                          CornerRadius=""2.5"" RenderTransformOrigin=""0.5,0.5"">
                     <Border.RenderTransform><ScaleTransform x:Name=""ths"" ScaleX=""1"" ScaleY=""1""/></Border.RenderTransform>
                   </Border>
                   <ControlTemplate.Triggers>
@@ -4103,11 +4756,13 @@ static partial class Settings
       <Setter Property=""VerticalAlignment"" Value=""Center""/>
       <Setter Property=""Template""><Setter.Value><ControlTemplate TargetType=""CheckBox"">
         <StackPanel Orientation=""Horizontal"" Background=""Transparent"">
+          <!-- 开关是「圆角族」里唯一天然该长成胶囊的控件：18 高的轨道配 9 半径刚好半圆，
+               方轨 + 方块钮放在白卡里像 2010 年的复选框（截图里最扎眼的一处直角）。 -->
           <Grid Width=""38"" Height=""18"" VerticalAlignment=""Center"">
-            <Border x:Name=""track"" Background=""#C9CED6""/>
-            <Border x:Name=""trackOn"" Background=""{DynamicResource AccentSolid}""
+            <Border x:Name=""track"" Background=""#C9CED6"" CornerRadius=""9""/>
+            <Border x:Name=""trackOn"" Background=""{DynamicResource AccentSolid}"" CornerRadius=""9""
                     BorderBrush=""#1FFFFFFF"" BorderThickness=""1"" Opacity=""0""/>
-            <Border x:Name=""knob"" Width=""12"" Height=""12"" HorizontalAlignment=""Left""
+            <Border x:Name=""knob"" Width=""12"" Height=""12"" HorizontalAlignment=""Left"" CornerRadius=""6""
                     Margin=""3,0,0,0"" Background=""{DynamicResource Panel}"">
               <Border.RenderTransform><TranslateTransform x:Name=""knobX"" X=""0""/></Border.RenderTransform>
             </Border>
@@ -4279,15 +4934,14 @@ static partial class Settings
       <Setter Property=""FontSize"" Value=""12""/>
       <Setter Property=""FontWeight"" Value=""Bold""/>
       <Setter Property=""Cursor"" Value=""Hand""/>
-      <Setter Property=""FocusVisualStyle"" Value=""{StaticResource FocusRing}""/>
+      <Setter Property=""FocusVisualStyle"" Value=""{StaticResource FocusRingRound}""/>
       <Setter Property=""Template""><Setter.Value><ControlTemplate TargetType=""Button"">
         <Grid UseLayoutRounding=""True"" SnapsToDevicePixels=""True"">
-          <Border x:Name=""bg"" Background=""{TemplateBinding Background}""
+          <Border x:Name=""bg"" Background=""{TemplateBinding Background}"" CornerRadius=""8""
                   BorderBrush=""{TemplateBinding BorderBrush}"" BorderThickness=""1""/>
-          <Border x:Name=""hoverLine"" BorderBrush=""{DynamicResource Ink}"" BorderThickness=""1"" Opacity=""0""/>
+          <!-- 底部那条 2px 承重线已删：设计规范里禁的就是它，圆角按钮配一条直线底边最出戏 -->
+          <Border x:Name=""hoverLine"" BorderBrush=""{DynamicResource Ink}"" BorderThickness=""1"" CornerRadius=""8"" Opacity=""0""/>
           <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center"" Margin=""{TemplateBinding Padding}""/>
-          <Border VerticalAlignment=""Stretch"" IsHitTestVisible=""False""
-                  BorderBrush=""{TemplateBinding BorderBrush}"" BorderThickness=""0,0,0,2""/>
         </Grid>
         <ControlTemplate.Triggers>
           <Trigger Property=""IsMouseOver"" Value=""True"">
@@ -4337,30 +4991,41 @@ static partial class Settings
     </Grid.RowDefinitions>
 
     <!-- 标题栏 -->
-    <Grid Grid.Row=""1"" Background=""{DynamicResource Desk}"">
+    <Grid Grid.Row=""1"" Background=""{DynamicResource HomeBg}"">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width=""Auto""/><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/>
       </Grid.ColumnDefinitions>
       <StackPanel Orientation=""Horizontal"" VerticalAlignment=""Center"" Margin=""16,0,0,0"">
+        <!-- 这一条整体是窗口拖动区，不显式声明就收不到点击（点了只会拖窗口） -->
+        <Button x:Name=""btnHome"" Content=""&#x2039; 返回"" Style=""{StaticResource BackLink}""
+                Visibility=""Collapsed"" Margin=""0,0,4,0""
+                WindowChrome.IsHitTestVisibleInChrome=""True""/>
+        <Border x:Name=""bdHomeSep"" Width=""1"" Height=""12"" Background=""{DynamicResource CardEdge}"" Margin=""0,0,10,0"" Visibility=""Collapsed""/>
         <Image x:Name=""imgIcon"" Width=""16"" Height=""16"" RenderOptions.BitmapScalingMode=""HighQuality""/>
-        <TextBlock Text=""// Q PET"" Style=""{StaticResource Eyebrow}"" Margin=""10,1,0,0"" VerticalAlignment=""Center""/>
+        <TextBlock Text=""Q Pet"" FontSize=""13"" FontWeight=""SemiBold"" Foreground=""{DynamicResource CardInk}"" Margin=""9,0,0,0"" VerticalAlignment=""Center""/>
         <Border Width=""1"" Height=""12"" Background=""{DynamicResource Rule}"" Margin=""10,0,10,0""/>
-        <TextBlock Text=""设置"" FontSize=""13"" FontWeight=""Bold"" Foreground=""{DynamicResource Ink}"" VerticalAlignment=""Center""/>
+        <TextBlock x:Name=""txtTopPage"" Text=""首页"" FontSize=""13"" FontWeight=""Bold"" Foreground=""{DynamicResource CardInk}"" VerticalAlignment=""Center""/>
+        <!-- 旧运行读数带（RUN / 落点 / CHAR / VOICE）收起来了：D 版把状态放进首页底部角色条，
+             标题栏只留「Q Pet + 当前页」。元素留着是因为 pb* 那几个读数还挂在内容页顶部仪表带上。 -->
+        <StackPanel x:Name=""topChips"" Orientation=""Horizontal"" Visibility=""Collapsed"">
         <!-- 运行读数：绿点 + 状态 + 落点 + 当前角色 + 语音条数，一行讲完，省掉左栏四条 -->
         <Border Width=""1"" Height=""12"" Background=""{DynamicResource Rule}"" Margin=""14,0,13,0""/>
         <Border x:Name=""bdRunDot"" Width=""6"" Height=""6"" Background=""#12A150"" VerticalAlignment=""Center""/>
         <TextBlock x:Name=""txtRunState"" Text=""RUN"" Style=""{StaticResource Eyebrow}"" Margin=""7,1,0,0"" VerticalAlignment=""Center""/>
         <TextBlock x:Name=""txtRunPos"" Text=""—"" FontSize=""11.5"" FontWeight=""SemiBold"" Margin=""9,0,0,0"" VerticalAlignment=""Center""/>
         <Border Width=""1"" Height=""12"" Background=""{DynamicResource Rule}"" Margin=""14,0,13,0""/>
-        <TextBlock Text=""CHAR"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Center""/>
         <TextBlock x:Name=""txtTopChar"" Text=""—"" FontSize=""11.5"" FontWeight=""SemiBold"" Margin=""7,0,0,0"" VerticalAlignment=""Center""/>
         <Border Width=""1"" Height=""12"" Background=""{DynamicResource Rule}"" Margin=""14,0,13,0""/>
         <TextBlock Text=""VOICE"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Center""/>
         <TextBlock x:Name=""txtTopVoice"" Text=""0"" FontSize=""11.5"" FontWeight=""SemiBold"" Margin=""7,0,0,0"" VerticalAlignment=""Center""/>
+        </StackPanel>
       </StackPanel>
       <StackPanel Grid.Column=""1"" Orientation=""Horizontal"" HorizontalAlignment=""Right"" VerticalAlignment=""Center""
                   Margin=""0,0,10,0"" WindowChrome.IsHitTestVisibleInChrome=""True"">
-        <Button x:Name=""btnHome"" Content=""角色枢纽 &#x203A;"" Style=""{StaticResource BackLink}"" Visibility=""Collapsed""/>
+          <TextBlock x:Name=""pbState"" Text=""已保存"" FontSize=""11""
+                     Foreground=""{DynamicResource CardSub}"" VerticalAlignment=""Center""/>
+          <Border x:Name=""pbDot"" Width=""5"" Height=""5"" Margin=""6,0,0,0"" Background=""#12A150""
+                  VerticalAlignment=""Center"" CornerRadius=""3""/>
       </StackPanel>
       <StackPanel Grid.Column=""2"" Orientation=""Horizontal"" WindowChrome.IsHitTestVisibleInChrome=""True"">
         <Button x:Name=""btnMin"" Content=""&#xE921;"" Style=""{StaticResource CaptionButton}"" FontSize=""9""/>
@@ -4375,7 +5040,7 @@ static partial class Settings
          双层 ScrollViewer 会让滚轮空转，这是踩过的坑。 -->
     <Grid Grid.Row=""2"">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width=""216""/>
+        <ColumnDefinition x:Name=""colNav"" Width=""216""/>
         <ColumnDefinition Width=""*""/>
       </Grid.ColumnDefinitions>
 
@@ -4383,7 +5048,6 @@ static partial class Settings
       <Border x:Name=""navHost"" Grid.Column=""0"" Background=""{DynamicResource Desk}""
               BorderBrush=""{DynamicResource Rule}"" BorderThickness=""0,0,1,0"" Visibility=""Collapsed"">
         <StackPanel Margin=""0,16,0,0"">
-          <TextBlock Text=""// SECTIONS"" Style=""{StaticResource Eyebrow}"" Margin=""20,0,0,8""/>
           <ListBox x:Name=""nav"" BorderThickness=""0"" Background=""Transparent""
                    ItemContainerStyle=""{StaticResource NavItem}"">
             <ListBoxItem Content=""// 常规"" Style=""{StaticResource NavHeader}""/>
@@ -4444,8 +5108,6 @@ static partial class Settings
                 <TextBlock Text=""01"" FontSize=""11"" FontWeight=""Bold"" Foreground=""{DynamicResource Accent}""/>
                 <TextBlock Text=""当前角色"" FontSize=""12.5"" FontWeight=""SemiBold"" Margin=""8,0,0,0""/>
               </StackPanel>
-              <TextBlock Text=""CHAR"" Style=""{StaticResource Eyebrow}"" HorizontalAlignment=""Right""
-                         VerticalAlignment=""Center"" Opacity=""0.5""/>
             </Grid>
             <StackPanel Orientation=""Horizontal"" Margin=""0,7,0,0"">
               <TextBlock x:Name=""txtHomeChar"" Text=""—"" FontSize=""24"" FontWeight=""Bold"" Foreground=""{DynamicResource Ink}""
@@ -4599,12 +5261,18 @@ static partial class Settings
 
         <!-- 中：角色枢纽。中栏和内容页共用同一张「工作面」（纸色 + 斜纹），
              底板改用白板 —— 白板压纸面才立得住形状，Chip 压 Paper 对比只有 1.02 会糊。 -->
-        <Grid x:Name=""midHost"" Grid.Column=""1"" Background=""{DynamicResource Paper}"">
+        <Grid x:Name=""midHost"" Grid.Column=""1"" Background=""{DynamicResource HomeBg}"">
+          <!-- 内容页三栏：左导航 / 内容 / 右栏。首页时两侧列宽归零，卡片墙要整幅。 -->
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name=""colRail"" Width=""0""/>
+            <ColumnDefinition Width=""*""/>
+            <ColumnDefinition x:Name=""colAside"" Width=""0""/>
+          </Grid.ColumnDefinitions>
           <!-- 枢纽视图：右侧磁贴点了某一页就收起，让位给下面的内容视口 -->
           <!-- 角色枢纽 = 整列立绘板：白板铺满中栏，立绘按比例吃满剩下的空间。
                眉标和底部操作条是叠在上层的两个窄条（不设 Background → 滚轮和拖动穿透到底下的板），
                所以「中间一列全是立绘」，控件只是浮在上面的一条细带。 -->
-          <Grid x:Name=""hubView"" Margin=""0"">
+          <Grid x:Name=""hubView"" Grid.ColumnSpan=""3"" Margin=""0"">
             <Grid.RowDefinitions>
               <RowDefinition Height=""Auto""/><RowDefinition Height=""*""/><RowDefinition Height=""Auto""/>
             </Grid.RowDefinitions>
@@ -4634,8 +5302,6 @@ static partial class Settings
               </Grid.RowDefinitions>
 
               <Grid Grid.Row=""0"" Margin=""20,13,20,0"">
-                <TextBlock Text=""// CURRENT CHARACTER"" Style=""{StaticResource Eyebrow}""
-                           Opacity=""0.45"" VerticalAlignment=""Center""/>
                 <TextBlock x:Name=""txtHubZoom"" Text=""×1.0"" FontSize=""10"" FontWeight=""Bold""
                            Foreground=""{DynamicResource Ink2}"" Background=""{DynamicResource Panel}""
                            Padding=""6,3,5,3"" HorizontalAlignment=""Right"" VerticalAlignment=""Center""
@@ -4659,41 +5325,32 @@ static partial class Settings
           </Grid>
 
           <Grid x:Name=""contentHost"" Grid.Column=""1"" Visibility=""Collapsed""
-                Background=""{DynamicResource Paper}"">
+                Background=""{DynamicResource HomeBg}"">
             <Grid.RowDefinitions>
               <RowDefinition Height=""Auto""/><RowDefinition Height=""*""/><RowDefinition Height=""Auto""/>
             </Grid.RowDefinitions>
             <!-- 顶部仪表带：SECTION / 页名 / 角色 / 高度 / 帧数 / 语音 / 保存态。
                  每个读数都是「灰眉标 + 墨值」，扫一眼就知道现在是谁、多大、有没有动画。 -->
-            <Border Grid.Row=""0"" Background=""{DynamicResource Paper}""
+            <Border Grid.Row=""0"" Visibility=""Collapsed"" Background=""{DynamicResource HomeBg}""
                     BorderBrush=""{DynamicResource Rule}"" BorderThickness=""0,0,0,1"" Padding=""24,0,20,0"">
               <Grid Height=""30"">
                 <StackPanel Orientation=""Horizontal"" VerticalAlignment=""Center"">
-                  <TextBlock Text=""SECTION"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Center"" Opacity=""0.6""/>
                   <!-- 编号用墨：这是一条数据带，主题色只留给「未保存/已保存」，编号再上色就三处抢眼 -->
                   <TextBlock x:Name=""pbNum"" Text=""01"" FontSize=""11"" FontWeight=""Bold""
                              Foreground=""{DynamicResource Ink}"" Margin=""9,0,0,0"" VerticalAlignment=""Center""/>
                   <TextBlock x:Name=""pbName"" Text=""气泡"" FontSize=""12"" FontWeight=""Bold""
                              Margin=""7,0,0,0"" VerticalAlignment=""Center""/>
                   <Border Width=""1"" Height=""10"" Background=""{DynamicResource Rule}"" Margin=""14,0""/>
-                  <TextBlock Text=""CHAR"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Center"" Opacity=""0.6""/>
                   <TextBlock x:Name=""pbChar"" Text=""—"" FontSize=""11.5"" FontWeight=""SemiBold""
                              Margin=""7,0,0,0"" VerticalAlignment=""Center""/>
                   <Border Width=""1"" Height=""10"" Background=""{DynamicResource Rule}"" Margin=""14,0""/>
-                  <TextBlock Text=""H"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Center"" Opacity=""0.6""/>
                   <TextBlock x:Name=""pbSize"" Text=""—"" FontSize=""11.5"" FontWeight=""SemiBold""
                              Margin=""7,0,0,0"" VerticalAlignment=""Center""/>
                   <Border Width=""1"" Height=""10"" Background=""{DynamicResource Rule}"" Margin=""14,0""/>
-                  <TextBlock Text=""FRAMES"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Center"" Opacity=""0.6""/>
                   <TextBlock x:Name=""pbFrames"" Text=""—"" FontSize=""11.5"" FontWeight=""SemiBold""
                              Margin=""7,0,0,0"" VerticalAlignment=""Center""/>
                 </StackPanel>
-                <StackPanel Orientation=""Horizontal"" HorizontalAlignment=""Right"" VerticalAlignment=""Center"">
-                  <TextBlock x:Name=""pbState"" Text=""已保存"" FontSize=""10.5"" FontWeight=""SemiBold""
-                             Foreground=""{DynamicResource Ink2}"" VerticalAlignment=""Center""/>
-                  <Border x:Name=""pbDot"" Width=""5"" Height=""5"" Margin=""7,0,0,0"" Background=""#12A150""
-                          VerticalAlignment=""Center""/>
-                </StackPanel>
+
               </Grid>
             </Border>
 
@@ -4703,13 +5360,8 @@ static partial class Settings
                 <StackPanel x:Name=""pageChar"">
                   <StackPanel Orientation=""Horizontal"">
                     <TextBlock Text=""形象与大小"" Style=""{StaticResource H1}""/>
-                    <TextBlock Text=""// CHARACTER / SCALE"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Bottom""
-                               Margin=""14,0,0,9"" Opacity=""0.7""/>
                   </StackPanel>
                   <TextBlock Text=""选择角色，并决定她在桌面上占多大"" Style=""{StaticResource Sub}"" Margin=""0,6,0,0""/>
-                  <Grid Height=""2"" Margin=""0,16,0,2"" SnapsToDevicePixels=""True"">
-                    <Border Background=""#000000""/>
-                  </Grid>
 
                   <!-- 角色：选中框用「粗左边 + 下边」的字段式外框，一眼看出这是可换的字段 -->
                   <Border Style=""{StaticResource Card}"">
@@ -4720,10 +5372,9 @@ static partial class Settings
                           <TextBlock Text=""角色"" Style=""{StaticResource H2}""/>
                           <TextBlock Text=""切换后立即换成这个角色的立绘与台词"" Style=""{StaticResource Sub}""/>
                         </StackPanel>
-                        <Border Grid.Column=""1"" VerticalAlignment=""Center""
-                                BorderBrush=""{DynamicResource AccentSolid}"" BorderThickness=""3,0,0,1"">
-                          <ComboBox x:Name=""cmbChar"" Width=""252"" Height=""32"" BorderThickness=""0""/>
-                        </Border>
+                        <!-- 角色选择：原来套了个「粗左线 + 细底线」的字段式外框，三条主题色竖条 + 方角，
+                             和旁边的圆角白卡不是一套。现在直接用全局 ComboBox 样式（1px 细线 + 8px 圆角）。 -->
+                        <ComboBox x:Name=""cmbChar"" Grid.Column=""1"" Width=""252"" VerticalAlignment=""Center""/>
                       </Grid>
                       <ContentControl Style=""{StaticResource DashedBox}"" Height=""150"" Margin=""0,12,0,0"">
                         <Grid>
@@ -4800,13 +5451,8 @@ static partial class Settings
                 <StackPanel x:Name=""pageVoice"" Visibility=""Collapsed"">
                   <StackPanel Orientation=""Horizontal"">
                     <TextBlock Text=""语音"" Style=""{StaticResource H1}""/>
-                    <TextBlock Text=""// VOICE"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Bottom""
-                               Margin=""14,0,0,9"" Opacity=""0.7""/>
                   </StackPanel>
                   <TextBlock Text=""点她时说什么、音量多大"" Style=""{StaticResource Sub}"" Margin=""0,4,0,0""/>
-                  <Grid Height=""2"" Margin=""0,16,0,2"" SnapsToDevicePixels=""True"">
-                    <Border Background=""#000000""/>
-                  </Grid>
                   <StackPanel Margin=""0,12,0,0"">
                     <Border Style=""{StaticResource Card}"">
                       <StackPanel>
@@ -4893,13 +5539,8 @@ static partial class Settings
                 <StackPanel x:Name=""pageUi"" Visibility=""Collapsed"">
                   <StackPanel Orientation=""Horizontal"">
                     <TextBlock Text=""通用设置"" Style=""{StaticResource H1}""/>
-                    <TextBlock Text=""// GENERAL"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Bottom""
-                               Margin=""14,0,0,9"" Opacity=""0.7""/>
                   </StackPanel>
                   <TextBlock Text=""桌面显示、界面主色、开机启动"" Style=""{StaticResource Sub}"" Margin=""0,4,0,0""/>
-                  <Grid Height=""2"" Margin=""0,16,0,2"" SnapsToDevicePixels=""True"">
-                    <Border Background=""#000000""/>
-                  </Grid>
                   <StackPanel x:Name=""uiContent"" Margin=""0,12,0,0""/>
                 </StackPanel>
 
@@ -4907,13 +5548,8 @@ static partial class Settings
                 <StackPanel x:Name=""pageBubble"" Visibility=""Collapsed"">
                   <StackPanel Orientation=""Horizontal"">
                     <TextBlock Text=""气泡"" Style=""{StaticResource H1}""/>
-                    <TextBlock Text=""// BUBBLE"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Bottom""
-                               Margin=""14,0,0,9"" Opacity=""0.7""/>
                   </StackPanel>
                   <TextBlock Text=""她说话时那一小块地方的样子"" Style=""{StaticResource Sub}"" Margin=""0,4,0,0""/>
-                  <Grid Height=""2"" Margin=""0,16,0,2"" SnapsToDevicePixels=""True"">
-                    <Border Background=""#000000""/>
-                  </Grid>
                   <StackPanel Margin=""0,12,0,0"">
                     <Border Style=""{StaticResource Card}"">
                       <StackPanel>
@@ -5027,13 +5663,8 @@ static partial class Settings
                 <StackPanel x:Name=""pageImport"" Visibility=""Collapsed"">
                   <StackPanel Orientation=""Horizontal"">
                     <TextBlock Text=""新建角色"" Style=""{StaticResource H1}""/>
-                    <TextBlock Text=""// IMPORT"" Style=""{StaticResource Eyebrow}"" VerticalAlignment=""Bottom""
-                               Margin=""14,0,0,9"" Opacity=""0.7""/>
                   </StackPanel>
                   <TextBlock Text=""把立绘、语音和动画装进一个新角色包"" Style=""{StaticResource Sub}"" Margin=""0,4,0,0""/>
-                  <Grid Height=""2"" Margin=""0,16,0,2"" SnapsToDevicePixels=""True"">
-                    <Border Background=""#000000""/>
-                  </Grid>
                   <StackPanel Margin=""0,12,0,0"">
                     <Border Style=""{StaticResource Card}"">
                       <StackPanel>
@@ -5103,6 +5734,69 @@ static partial class Settings
               </Grid>
             </Border>
           </Grid>
+
+          <!-- 左栏：内容页常驻导航。点一下换页，当前页主题浅底 + 左竖条。 -->
+          <Border x:Name=""pageRail"" Grid.Column=""0"" Visibility=""Collapsed""
+                  Background=""{DynamicResource HomeBg}"" BorderBrush=""{DynamicResource CardEdge}""
+                  BorderThickness=""0,0,1,0"" Padding=""10,22,10,16"">
+            <StackPanel>
+              <TextBlock Text=""设置"" FontSize=""11"" Foreground=""{DynamicResource CardWeak}"" Margin=""14,0,0,10""/>
+              <ToggleButton x:Name=""railBubble"" Uid=""bubble"" Tag=""01"" Content=""气泡"" Style=""{StaticResource RailItem}""/>
+              <ToggleButton x:Name=""railUi"" Uid=""ui"" Tag=""02"" Content=""通用设置"" Style=""{StaticResource RailItem}""/>
+              <ToggleButton x:Name=""railChar"" Uid=""char"" Tag=""03"" Content=""形象与大小"" Style=""{StaticResource RailItem}""/>
+              <ToggleButton x:Name=""railAnim"" Uid=""anim"" Tag=""04"" Content=""动画"" Style=""{StaticResource RailItem}""/>
+              <ToggleButton x:Name=""railVoice"" Uid=""voice"" Tag=""05"" Content=""语音"" Style=""{StaticResource RailItem}""/>
+              <ToggleButton x:Name=""railImport"" Uid=""import"" Tag=""06"" Content=""导入"" Style=""{StaticResource RailItem}""/>
+              <ToggleButton x:Name=""railStats"" Uid=""stats"" Tag=""07"" Content=""统计"" Style=""{StaticResource RailItem}""/>
+              <ToggleButton x:Name=""railAbout"" Uid=""about"" Tag=""08"" Content=""关于"" Style=""{StaticResource RailItem}""/>
+              <Border Height=""1"" Background=""{DynamicResource CardEdge}"" Margin=""14,14,14,12""/>
+              <Button x:Name=""btnRailHome"" Content=""&#x2039; 返回首页"" Style=""{StaticResource SecondaryButton}""
+                      HorizontalAlignment=""Stretch""/>
+            </StackPanel>
+          </Border>
+
+          <!-- 右栏：内容页常驻。左导航回答「去哪」，这里回答「现在是谁、什么状态」。
+               中间那列收窄之后，两边的空才有东西撑住，否则整块糊在屏幕上。 -->
+          <Border x:Name=""pageAside"" Grid.Column=""2"" Visibility=""Collapsed""
+                  Background=""{DynamicResource HomeBg}"" BorderBrush=""{DynamicResource CardEdge}""
+                  BorderThickness=""1,0,0,0"" Padding=""18,20,18,18"">
+            <StackPanel>
+              <TextBlock Text=""当前角色"" FontSize=""11"" Foreground=""{DynamicResource CardSub}""/>
+              <Border Height=""176"" CornerRadius=""10"" Background=""{DynamicResource Panel}""
+                      BorderBrush=""{DynamicResource CardEdge}"" BorderThickness=""1"" Margin=""0,10,0,0"">
+                <Image x:Name=""imgAsideChar"" Stretch=""Uniform"" Margin=""8""/>
+              </Border>
+              <TextBlock x:Name=""txtAsideName"" Text=""—"" FontSize=""17"" FontWeight=""Bold""
+                         Foreground=""{DynamicResource CardInk}"" Margin=""0,14,0,0""
+                         TextTrimming=""CharacterEllipsis""/>
+              <TextBlock x:Name=""txtAsideMeta"" Text=""—"" FontSize=""11"" Foreground=""{DynamicResource CardSub}""
+                         Margin=""0,5,0,0"" TextWrapping=""Wrap"" LineHeight=""17""/>
+
+              <Border Height=""1"" Background=""{DynamicResource CardEdge}"" Margin=""0,18,0,14""/>
+
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
+                <TextBlock Text=""气泡高度"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" VerticalAlignment=""Center""/>
+                <TextBlock x:Name=""txtAsideBubble"" Grid.Column=""1"" Text=""—"" FontSize=""11.5"" FontWeight=""SemiBold""
+                           Foreground=""{DynamicResource CardInk}"" VerticalAlignment=""Center""/>
+              </Grid>
+              <Grid Margin=""0,9,0,0"">
+                <Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
+                <TextBlock Text=""音量"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" VerticalAlignment=""Center""/>
+                <TextBlock x:Name=""txtAsideVol"" Grid.Column=""1"" Text=""—"" FontSize=""11.5"" FontWeight=""SemiBold""
+                           Foreground=""{DynamicResource CardInk}"" VerticalAlignment=""Center""/>
+              </Grid>
+              <Grid Margin=""0,9,0,0"">
+                <Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
+                <TextBlock Text=""主题色"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" VerticalAlignment=""Center""/>
+                <Border x:Name=""bdAsideSwatch"" Grid.Column=""1"" Width=""10"" Height=""10"" CornerRadius=""3""
+                        Background=""{DynamicResource AccentSolid}"" VerticalAlignment=""Center"" Margin=""0,0,7,0""/>
+                <TextBlock x:Name=""txtAsideTheme"" Grid.Column=""2"" Text=""—"" FontSize=""11.5"" FontWeight=""SemiBold""
+                           Foreground=""{DynamicResource CardInk}"" VerticalAlignment=""Center""/>
+              </Grid>
+
+            </StackPanel>
+          </Border>
         </Grid>
 
         <!-- 右：八页入口。整格铺斜纹、编号在左上、标签压底，四行两列不留缝 -->
@@ -5193,6 +5887,191 @@ static partial class Settings
             </Grid>
           </Grid>
         </Border>
+
+        <!-- ===== 首页卡片墙（D 版） =====
+             盖在三栏之上：summaryHost / midHost / tilesHost 三个老容器还在（代码里还引用着），
+             但列宽归零 + 隐藏，屏幕上只剩这张卡片墙。点卡片 = ShowPage(Tag)。
+             每张卡右上角是当前值读数：不进二级页也能知道现在是什么状态，
+             这也是 D 唯一的短板（首页信息少）能补回来的关键。 -->
+        <Grid x:Name=""homeDeck"" Grid.ColumnSpan=""3"" Background=""{DynamicResource HomeBg}"">
+          <Grid.RowDefinitions>
+            <RowDefinition Height=""Auto""/>
+            <RowDefinition Height=""*""/>
+            <RowDefinition Height=""Auto""/>
+          </Grid.RowDefinitions>
+
+          <Grid Grid.Row=""0"" Margin=""32,26,32,0"">
+            <StackPanel>
+              <TextBlock Text=""设置"" FontSize=""22"" FontWeight=""Bold"" Foreground=""{DynamicResource CardInk}""/>
+              <TextBlock Text=""挑一项开始调，改完立刻生效"" FontSize=""12"" Foreground=""{DynamicResource CardSub}"" Margin=""0,5,0,0""/>
+            </StackPanel>
+            <TextBlock x:Name=""txtDeckVer"" Text=""Q PET 2.1.0"" FontSize=""11"" FontWeight=""SemiBold""
+                       Foreground=""{DynamicResource CardWeak}"" HorizontalAlignment=""Right"" VerticalAlignment=""Bottom"" Margin=""0,0,0,3""/>
+          </Grid>
+
+          <UniformGrid Grid.Row=""1"" Rows=""2"" Columns=""4"" Margin=""32,20,18,0"" VerticalAlignment=""Top"">
+            <Button Style=""{StaticResource CardButton}"" x:Name=""cardBubble"" Tag=""bubble"" Height=""152"" Margin=""0,0,14,14"">
+              <Grid VerticalAlignment=""Top"">
+                <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
+                <Border x:Name=""iconBubble"" Style=""{StaticResource IconTileBox}"">
+                  <Path Data=""M2.5,3.5 H13.5 V11 H8.5 L5.5,13.5 V11 H2.5 Z"" Width=""19"" Height=""19"" Stretch=""Uniform""
+                        HorizontalAlignment=""Center"" VerticalAlignment=""Center""
+                        Stroke=""{DynamicResource AccentInk}"" StrokeThickness=""1.6"" StrokeLineJoin=""Round""/>
+                </Border>
+                <TextBlock x:Name=""txtDeckBubble"" Grid.Row=""0"" Text=""—"" Style=""{StaticResource DeckReadout}""/>
+                <StackPanel Grid.Row=""2"" Margin=""0,26,0,0"">
+                  <TextBlock Text=""气泡"" FontSize=""14"" FontWeight=""SemiBold"" Foreground=""{DynamicResource CardInk}""/>
+                  <TextBlock Text=""字体、颜色、频率"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" Margin=""0,3,0,0""/>
+                </StackPanel>
+              </Grid>
+            </Button>
+
+            <Button Style=""{StaticResource CardButton}"" x:Name=""cardUi"" Tag=""ui"" Height=""152"" Margin=""0,0,14,14"">
+              <Grid VerticalAlignment=""Top"">
+                <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
+                <Border x:Name=""iconUi"" Style=""{StaticResource IconTileBox}"">
+                  <Path Data=""M2.6,5.5 H13.4 M2.6,10.5 H13.4 M4.6,3.6 H8.2 V7.4 H4.6 Z M7.8,8.6 H11.4 V12.4 H7.8 Z"" Width=""19"" Height=""19"" Stretch=""Uniform""
+                        HorizontalAlignment=""Center"" VerticalAlignment=""Center""
+                        Stroke=""{DynamicResource AccentInk}"" StrokeThickness=""1.6"" StrokeLineJoin=""Round""/>
+                </Border>
+                <TextBlock x:Name=""txtDeckTheme"" Grid.Row=""0"" Text=""—"" Style=""{StaticResource DeckReadout}""/>
+                <StackPanel Grid.Row=""2"" Margin=""0,26,0,0"">
+                  <TextBlock Text=""通用设置"" FontSize=""14"" FontWeight=""SemiBold"" Foreground=""{DynamicResource CardInk}""/>
+                  <TextBlock Text=""显示、开机、主题色"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" Margin=""0,3,0,0""/>
+                </StackPanel>
+              </Grid>
+            </Button>
+
+            <Button Style=""{StaticResource CardButton}"" x:Name=""cardChar"" Tag=""char"" Height=""152"" Margin=""0,0,14,14"">
+              <Grid VerticalAlignment=""Top"">
+                <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
+                <Border x:Name=""iconChar"" Style=""{StaticResource IconTileBox}"">
+                  <Path Data=""M8,7.5 A2.4,2.4 0 1,1 8,2.7 A2.4,2.4 0 1,1 8,7.5 Z M3.8,13.5 C3.8,10.9 5.6,9.4 8,9.4 C10.4,9.4 12.2,10.9 12.2,13.5"" Width=""19"" Height=""19"" Stretch=""Uniform""
+                        HorizontalAlignment=""Center"" VerticalAlignment=""Center""
+                        Stroke=""{DynamicResource AccentInk}"" StrokeThickness=""1.6"" StrokeLineJoin=""Round"" StrokeStartLineCap=""Round"" StrokeEndLineCap=""Round""/>
+                </Border>
+                <TextBlock x:Name=""txtDeckSize"" Grid.Row=""0"" Text=""—"" Style=""{StaticResource DeckReadout}""/>
+                <StackPanel Grid.Row=""2"" Margin=""0,26,0,0"">
+                  <TextBlock Text=""形象与大小"" FontSize=""14"" FontWeight=""SemiBold"" Foreground=""{DynamicResource CardInk}""/>
+                  <TextBlock Text=""角色、高度、立绘"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" Margin=""0,3,0,0""/>
+                </StackPanel>
+              </Grid>
+            </Button>
+
+            <Button Style=""{StaticResource CardButton}"" x:Name=""cardAnim"" Tag=""anim"" Height=""152"" Margin=""0,0,14,14"">
+              <Grid VerticalAlignment=""Top"">
+                <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
+                <Border x:Name=""iconAnim"" Style=""{StaticResource IconTileBox}"">
+                  <Path Data=""M2.5,4.5 H13.5 V11.5 H2.5 Z M5.5,4.5 V11.5 M10.5,4.5 V11.5"" Width=""19"" Height=""19"" Stretch=""Uniform""
+                        HorizontalAlignment=""Center"" VerticalAlignment=""Center""
+                        Stroke=""{DynamicResource AccentInk}"" StrokeThickness=""1.6"" StrokeLineJoin=""Round""/>
+                </Border>
+                <TextBlock x:Name=""txtDeckAnim"" Grid.Row=""0"" Text=""—"" Style=""{StaticResource DeckReadout}""/>
+                <StackPanel Grid.Row=""2"" Margin=""0,26,0,0"">
+                  <TextBlock Text=""动画"" FontSize=""14"" FontWeight=""SemiBold"" Foreground=""{DynamicResource CardInk}""/>
+                  <TextBlock Text=""待机、点击、拖动"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" Margin=""0,3,0,0""/>
+                </StackPanel>
+              </Grid>
+            </Button>
+
+            <Button Style=""{StaticResource CardButton}"" x:Name=""cardVoice"" Tag=""voice"" Height=""152"" Margin=""0,0,14,14"">
+              <Grid VerticalAlignment=""Top"">
+                <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
+                <Border x:Name=""iconVoice"" Style=""{StaticResource IconTileBox}"">
+                  <Path Data=""M6,4.6 A2,2 0 0,1 10,4.6 V8.4 A2,2 0 0,1 6,8.4 Z M8,10.4 V13 M5.5,13 H10.5"" Width=""19"" Height=""19"" Stretch=""Uniform""
+                        HorizontalAlignment=""Center"" VerticalAlignment=""Center""
+                        Stroke=""{DynamicResource AccentInk}"" StrokeThickness=""1.6"" StrokeLineJoin=""Round"" StrokeStartLineCap=""Round"" StrokeEndLineCap=""Round""/>
+                </Border>
+                <TextBlock x:Name=""txtDeckVol"" Grid.Row=""0"" Text=""—"" Style=""{StaticResource DeckReadout}""/>
+                <StackPanel Grid.Row=""2"" Margin=""0,26,0,0"">
+                  <TextBlock Text=""语音"" FontSize=""14"" FontWeight=""SemiBold"" Foreground=""{DynamicResource CardInk}""/>
+                  <TextBlock Text=""音量、试听、台词"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" Margin=""0,3,0,0""/>
+                </StackPanel>
+              </Grid>
+            </Button>
+
+            <Button Style=""{StaticResource CardButton}"" x:Name=""cardImport"" Tag=""import"" Height=""152"" Margin=""0,0,14,14"">
+              <Grid VerticalAlignment=""Top"">
+                <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
+                <Border x:Name=""iconImport"" Style=""{StaticResource IconTileBox}"">
+                  <Path Data=""M8,2.6 L13.2,5.4 V10.6 L8,13.4 L2.8,10.6 V5.4 Z M2.8,5.4 L8,8.2 L13.2,5.4 M8,8.2 V13.4"" Width=""19"" Height=""19"" Stretch=""Uniform""
+                        HorizontalAlignment=""Center"" VerticalAlignment=""Center""
+                        Stroke=""{DynamicResource AccentInk}"" StrokeThickness=""1.6"" StrokeLineJoin=""Round""/>
+                </Border>
+                <TextBlock x:Name=""txtDeckImport"" Grid.Row=""0"" Text=""—"" Style=""{StaticResource DeckReadout}""/>
+                <StackPanel Grid.Row=""2"" Margin=""0,26,0,0"">
+                  <TextBlock Text=""导入"" FontSize=""14"" FontWeight=""SemiBold"" Foreground=""{DynamicResource CardInk}""/>
+                  <TextBlock Text=""角色包与素材"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" Margin=""0,3,0,0""/>
+                </StackPanel>
+              </Grid>
+            </Button>
+
+            <Button Style=""{StaticResource CardButton}"" x:Name=""cardStats"" Tag=""stats"" Height=""152"" Margin=""0,0,14,14"">
+              <Grid VerticalAlignment=""Top"">
+                <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
+                <Border x:Name=""iconStats"" Style=""{StaticResource IconTileBox}"">
+                  <Path Data=""M4,12.4 V7.4 M8,12.4 V3.8 M12,12.4 V9.4 M2.5,14 H13.5"" Width=""19"" Height=""19"" Stretch=""Uniform""
+                        HorizontalAlignment=""Center"" VerticalAlignment=""Center""
+                        Stroke=""{DynamicResource AccentInk}"" StrokeThickness=""1.6"" StrokeLineJoin=""Round"" StrokeStartLineCap=""Round"" StrokeEndLineCap=""Round""/>
+                </Border>
+                <TextBlock x:Name=""txtDeckStats"" Grid.Row=""0"" Text=""—"" Style=""{StaticResource DeckReadout}""/>
+                <StackPanel Grid.Row=""2"" Margin=""0,26,0,0"">
+                  <TextBlock Text=""使用统计"" FontSize=""14"" FontWeight=""SemiBold"" Foreground=""{DynamicResource CardInk}""/>
+                  <TextBlock Text=""陪伴时长、按键"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" Margin=""0,3,0,0""/>
+                </StackPanel>
+              </Grid>
+            </Button>
+
+            <Button Style=""{StaticResource CardButton}"" x:Name=""cardAbout"" Tag=""about"" Height=""152"" Margin=""0,0,14,14"">
+              <Grid VerticalAlignment=""Top"">
+                <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
+                <Border x:Name=""iconAbout"" Style=""{StaticResource IconTileBox}"">
+                  <Path Data=""M8,2.2 A5.8,5.8 0 1,1 8,13.8 A5.8,5.8 0 1,1 8,2.2 Z M8,7.2 V11 M8,5 V5.2"" Width=""19"" Height=""19"" Stretch=""Uniform""
+                        HorizontalAlignment=""Center"" VerticalAlignment=""Center""
+                        Stroke=""{DynamicResource AccentInk}"" StrokeThickness=""1.6"" StrokeLineJoin=""Round"" StrokeStartLineCap=""Round"" StrokeEndLineCap=""Round""/>
+                </Border>
+                <TextBlock x:Name=""txtDeckAbout"" Grid.Row=""0"" Text=""—"" Style=""{StaticResource DeckReadout}""/>
+                <StackPanel Grid.Row=""2"" Margin=""0,26,0,0"">
+                  <TextBlock Text=""关于"" FontSize=""14"" FontWeight=""SemiBold"" Foreground=""{DynamicResource CardInk}""/>
+                  <TextBlock Text=""版本与许可"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" Margin=""0,3,0,0""/>
+                </StackPanel>
+              </Grid>
+            </Button>
+          </UniformGrid>
+
+          <!-- 底部角色条：D 的「主角位」。左边一块 150 的立绘框，中间名字与陪伴数据，
+               右边运行态和两个动作。首页除了入口，还得让人一眼看见「现在陪着的是谁」。 -->
+          <Border Grid.Row=""2"" Margin=""32,6,32,22"" Background=""{DynamicResource CardBg}""
+                  BorderBrush=""{DynamicResource CardEdge}"" BorderThickness=""1"" CornerRadius=""12"" Padding=""20,18"">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width=""Auto""/><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/>
+              </Grid.ColumnDefinitions>
+              <Border Width=""150"" Height=""150"" CornerRadius=""10"" Background=""#F1F4F9"">
+                <Image x:Name=""imgDeckChar"" Stretch=""Uniform"" Margin=""6""/>
+              </Border>
+              <StackPanel Grid.Column=""1"" Margin=""24,6,0,0"" VerticalAlignment=""Center"">
+                <TextBlock Text=""当前角色"" FontSize=""11"" Foreground=""{DynamicResource CardWeak}""/>
+                <TextBlock x:Name=""txtDeckCharName"" Text=""—"" FontSize=""22"" FontWeight=""Bold""
+                           Foreground=""{DynamicResource CardInk}"" Margin=""0,3,0,0""/>
+                <TextBlock x:Name=""txtDeckCharMeta"" Text=""—"" FontSize=""11.5"" Foreground=""{DynamicResource CardSub}"" Margin=""0,8,0,0""/>
+              </StackPanel>
+              <StackPanel Grid.Column=""2"" VerticalAlignment=""Center"">
+                <StackPanel Orientation=""Horizontal"" HorizontalAlignment=""Right"">
+                  <Border Width=""6"" Height=""6"" CornerRadius=""3"" Background=""#12A150"" VerticalAlignment=""Center""/>
+                  <TextBlock x:Name=""txtDeckRun"" Text=""—"" FontSize=""11.5"" FontWeight=""SemiBold""
+                             Foreground=""{DynamicResource CardInk}"" Margin=""7,0,0,0""/>
+                  <TextBlock x:Name=""txtDeckPos"" Text=""—"" FontSize=""11"" Foreground=""{DynamicResource CardWeak}""
+                             Margin=""10,0,0,0"" VerticalAlignment=""Center""/>
+                </StackPanel>
+                <StackPanel Orientation=""Horizontal"" HorizontalAlignment=""Right"" Margin=""0,12,0,0"">
+                  <Button x:Name=""btnDeckShow"" Content=""在桌面显示"" Style=""{StaticResource SecondaryButton}""/>
+                  <Button x:Name=""btnDeckFolder"" Content=""打开角色文件夹"" Style=""{StaticResource SecondaryButton}"" Margin=""8,0,0,0""/>
+                </StackPanel>
+              </StackPanel>
+            </Grid>
+          </Border>
+        </Grid>
       </Grid>
     </Grid>
   </Grid>
@@ -5286,6 +6165,7 @@ static class Dlg
         bd.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
         bd.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Button.BorderBrushProperty));
         bd.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        bd.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));   // 和主界面按钮、卡片同一族
         grid.AppendChild(bd);
         if (filled)
         {
@@ -5293,6 +6173,7 @@ static class Dlg
             var hair = new FrameworkElementFactory(typeof(Border));
             hair.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF)));
             hair.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            hair.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
             hair.SetValue(UIElement.IsHitTestVisibleProperty, false);
             grid.AppendChild(hair);
         }
@@ -5313,9 +6194,7 @@ static class Dlg
         });
         b.Template = tpl;
 
-        // 填充款带右下 8px 切角，和主界面「保存更改」同一套语言（真裁切，不是盖三角）
-        if (filled)
-            b.SizeChanged += (s2, e2) => Chamfer(b, 8);
+        // 填充款不再切右下角：主界面按钮已改圆角，弹窗里若还切角就成了第三种按钮形态
 
         bool over = false, down = false;
         Action sync = () =>
@@ -5351,30 +6230,14 @@ static class Dlg
         r.SetValue(FrameworkElement.MarginProperty, new Thickness(-3));
         r.SetValue(System.Windows.Shapes.Shape.StrokeThicknessProperty, 2.0);
         r.SetValue(System.Windows.Shapes.Shape.StrokeProperty, new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A)));
+        r.SetValue(System.Windows.Shapes.Rectangle.RadiusXProperty, 11.0);   // 按钮圆角了，外圈跟着圆
+        r.SetValue(System.Windows.Shapes.Rectangle.RadiusYProperty, 11.0);
         r.SetValue(UIElement.SnapsToDevicePixelsProperty, true);
         tpl.VisualTree = r;
         _ringStyle = new Style(typeof(Control));
         _ringStyle.Setters.Add(new Setter(Control.TemplateProperty, tpl));
         _ringStyle.Seal();
         return _ringStyle;
-    }
-
-    // 右下 8px 真裁切（弹窗按钮自建模板，不走主界面的 ApplyChamferIfPrimary）
-    static void Chamfer(Button b, double cut)
-    {
-        double w = b.ActualWidth, h = b.ActualHeight;
-        if (w <= 12 || h <= 12) return;
-        var g = new StreamGeometry();
-        using (StreamGeometryContext ctx = g.Open())
-        {
-            ctx.BeginFigure(new Point(0, 0), true, true);
-            ctx.LineTo(new Point(w, 0), false, false);
-            ctx.LineTo(new Point(w, h - cut), false, false);
-            ctx.LineTo(new Point(w - cut, h), false, false);
-            ctx.LineTo(new Point(0, h), false, false);
-        }
-        g.Freeze();
-        b.Clip = g;
     }
 
     // 自检探针：三种按钮各建一个，回报底色 / 线色与线宽 / 焦点圈 / 切角 / 有没有 2px 重线
@@ -5389,13 +6252,13 @@ static class Dlg
             b.UpdateLayout();
             SolidColorBrush bg = b.Background as SolidColorBrush;
             Border bd = b.Template.FindName("bd", b) as Border;
-            bool wantCut = k != BtnKind.Secondary;
+            bool roundB = bd != null && bd.CornerRadius.TopLeft >= 8;
             SolidColorBrush lb = bd == null ? null : bd.BorderBrush as SolidColorBrush;
             string line = (lb == null || bd == null) ? "—"
                 : "#" + Settings.HexOf(lb.Color) + (lb.Color.A == 0 ? "透明" : "") + " " + bd.BorderThickness.Left.ToString("0") + "px";
             rows.Add(k + "底 #" + (bg == null ? "—" : Settings.HexOf(bg.Color)) + "·线" + line
                 + "·焦点圈" + (b.FocusVisualStyle != null ? "外圈 ✓" : "缺 ✗")
-                + "·切角" + (b.Clip != null ? (wantCut ? "有 ✓" : "多余 ✗") : (wantCut ? "缺 ✗" : "无 ✓"))
+                + "·圆角" + (roundB ? "8px ✓" : "缺 ✗")
                 + "·底线" + (bd != null && bd.BorderThickness.Bottom > 1 ? "有 ✗" : "无 ✓"));
         }
         return string.Join(" ／ ", rows.ToArray());
@@ -5428,9 +6291,10 @@ static class Dlg
             Width = 430,
             Margin = new Thickness(26),
             Background = Brushes.White,
-            BorderBrush = Settings.C("#C9CED6"),
+            BorderBrush = Settings.C("#E6E8ED"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(0),
+            // 12px 圆角，和卡片、输入框一个族；弹窗是「浮起来的一张卡」，不该是刀切方角
+            CornerRadius = new CornerRadius(12),
             Padding = new Thickness(26, 24, 26, 20)
         };
 
@@ -5440,7 +6304,7 @@ static class Dlg
         head.ColumnDefinitions.Add(new ColumnDefinition());
         var badge = new Border
         {
-            Width = 42, Height = 42, CornerRadius = new CornerRadius(0),
+            Width = 42, Height = 42, CornerRadius = new CornerRadius(10),
             Background = new SolidColorBrush(danger ? Color.FromRgb(0xF7, 0xE7, 0xE5) : Settings.ThemeColor),
             Margin = new Thickness(0, 2, 14, 0), VerticalAlignment = VerticalAlignment.Top
         };
@@ -5583,8 +6447,8 @@ static class ColorDlg
         var card = new Border
         {
             Width = 400, Margin = new Thickness(26), Background = Brushes.White,
-            BorderBrush = Settings.C("#C9CED6"), BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(0), Padding = new Thickness(24, 20, 24, 18)
+            BorderBrush = Settings.C("#E6E8ED"), BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12), Padding = new Thickness(24, 20, 24, 18)
         };
 
         var root = new StackPanel();
@@ -5597,7 +6461,7 @@ static class ColorDlg
         Color cur = initial;
         var preview = new Border
         {
-            Height = 56, Margin = new Thickness(0, 14, 0, 14), CornerRadius = new CornerRadius(0),
+            Height = 56, Margin = new Thickness(0, 14, 0, 14), CornerRadius = new CornerRadius(8),
             BorderBrush = new SolidColorBrush(Color.FromRgb(0xE5, 0xE7, 0xEB)), BorderThickness = new Thickness(1)
         };
         var hexBox = new TextBox { Height = 32, FontFamily = new FontFamily("Consolas"), MaxLength = 6 };

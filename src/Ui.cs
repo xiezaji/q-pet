@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,17 +20,18 @@ static partial class Settings
         {
             try
             {
-                // 注意：Saira Wide 只有拉丁和数字，没有汉字。放开让 WPF 自己找回退字体，
-                // 不同控件会落到不同字体上 —— 实测按钮/标签是黑体、下拉框里却是宋体（截图肉眼可见）。
-                // 所以显式写出回退链：拉丁数字用 Saira Wide，汉字统一落到雅黑。
-                var ff = new FontFamily(new Uri("pack://application:,,,/"), "./Fonts/#QPet UI");
+                // 直接写系统字体族名。不要用 pack://application:,,,/Fonts/#QPet UI 那套复合字体：
+                // 这个工程 EnableDefaultCompileItems=false、没有任何 Page 项，WPF 不会生成 .g.resources，
+                // 复合字体根本没进 exe —— FontFamily 静默回落到默认字体，改映射表毫无效果（2026-11-19 查实）。
+                // 图标不受影响：MDL2 的字形都在各自的 Style/代码里显式指定了 FontFamily。
+                var ff = new FontFamily("Microsoft YaHei");
                 int n = 0;
                 foreach (Typeface tf in ff.GetTypefaces()) n++;
                 if (n > 0)
                 {
                     Win.FontFamily = ff;
                     UiFace = ff;                    // 弹窗是独立 Window，拿不到主窗的继承值
-                    _uiFontInfo = "QPet UI ×" + n + "（拉丁 Saira Wide │ 汉字 雅黑）";
+                    _uiFontInfo = "Microsoft YaHei ×" + n + "（汉字与拉丁同一套）";
                 }
                 else _uiFontInfo = "字体族为空，退回系统字体";
             }
@@ -68,49 +69,6 @@ static partial class Settings
             return Color.FromRgb((byte)Math.Round(c.R * f), (byte)Math.Round(c.G * f), (byte)Math.Round(c.B * f));
         }
 
-        static void InstallButtonChamfer()
-        {
-            try
-            {
-                _primaryBtnStyle = Win.FindResource("PrimaryButton") as Style;
-                if (_primaryBtnStyle == null) return;
-                if (!_chamferHooked)
-                {
-                    _chamferHooked = true;
-                    EventManager.RegisterClassHandler(typeof(Button), FrameworkElement.SizeChangedEvent,
-                        new SizeChangedEventHandler(OnBtnSizeForChamfer), true);
-                }
-                ApplyChamferIfPrimary(Win.FindName("btnSave") as Button);
-                ApplyChamferIfPrimary(Win.FindName("btnHomeShow") as Button);
-            }
-            catch (Exception ex) { LogErr("chamfer", ex); }
-        }
-
-        static void OnBtnSizeForChamfer(object sender, SizeChangedEventArgs e)
-        {
-            ApplyChamferIfPrimary(sender as Button);
-        }
-
-        static void ApplyChamferIfPrimary(Button b)
-        {
-            if (b == null || _primaryBtnStyle == null) return;
-            if (!ReferenceEquals(b.Style, _primaryBtnStyle)) return;
-            double w = b.ActualWidth, h = b.ActualHeight;
-            if (w <= 12 || h <= 12) return;      // 还没布局出来，等下一次 SizeChanged
-            const double cut = 8;
-            var g = new StreamGeometry();
-            using (StreamGeometryContext ctx = g.Open())
-            {
-                ctx.BeginFigure(new Point(0, 0), true, true);
-                ctx.LineTo(new Point(w, 0), false, false);
-                ctx.LineTo(new Point(w, h - cut), false, false);
-                ctx.LineTo(new Point(w - cut, h), false, false);
-                ctx.LineTo(new Point(0, h), false, false);
-            }
-            g.Freeze();
-            b.Clip = g;
-        }
-
         // 信号色（Accent）只做填充；它上面压的字必须跟着信号色亮度走。
         static void ApplyThemeColor(Color c) { ApplyThemeColor(c, false); }
 
@@ -145,6 +103,10 @@ static partial class Settings
                 FadeRes("AccentPress", bp, ms);
                 // 选中行的浅底：主题色往白里调，只当底色用，不参与对比度计算
                 FadeRes("AccentSoft", Tint(c, 0.90), ms);
+                // 八页图标块：比选中行浅底再实一档，才看得出一块「底」而不是一点「色」。
+                // 悬停时压深，配合卡片上浮，鼠标扫过去有回应但不闪。
+                FadeRes("IconTile", Tint(c, 0.84), ms);
+                FadeRes("IconTileHover", Tint(c, 0.74), ms);
                 FadeRes("AccentInk", Darken(c, Color.FromRgb(0xE1, 0xE5, 0xEA), 4.5), ms);
                 // 字色不渐变：渐变到一半可能落在浅底上，读不出来
                 SetRes("OnAccent", new SolidColorBrush(SignalInk(c)));
@@ -165,6 +127,10 @@ static partial class Settings
                 // 导入页的角色方框卡（当前项描边 / 角标）和统计页的角色方格图，颜色也是建的时候抓的实例
                 if (ImportList != null && ImportList.Children.Count > 0) RefreshImport();
                 InvalidateCharMap();
+                // 色板格子的选中环是 AccentInk 的实例（建的时候抓的），换肤后得重涂；
+                // 那两墙格子只在气泡页可见，但驻留在树上，不重涂会一直停在旧主题色上。
+                if (BubbleColorHost != null && BubbleColorHost.Children.Count > 0) BuildBubbleColorTiles();
+                if (BubbleInkHost != null && BubbleInkHost.Children.Count > 0) BuildBubbleInkTiles();
             }
             catch (Exception ex) { LogErr("theme", ex); }
         }
@@ -219,6 +185,20 @@ static partial class Settings
             { "#F7E7E5", "#FDECEA" },     // 危险浅底
         };
 
+        // 按圆角裁掉子元素：Border.CornerRadius 只画边框，不裁里面的图片/画布，
+        // 图像一旦贴边就会把四个圆角糊成方角（导入卡、统计页方格图都踩过）。
+        internal static void ClipRounded(FrameworkElement el, double r)
+        {
+            if (el == null) return;
+            var g = new RectangleGeometry(new Rect(0, 0, 1, 1), r, r);
+            el.Clip = g;
+            el.SizeChanged += (s2, e2) =>
+            {
+                if (e2.NewSize.Width > 0 && e2.NewSize.Height > 0)
+                    g.Rect = new Rect(0, 0, e2.NewSize.Width, e2.NewSize.Height);
+            };
+        }
+
         static TextBlock Txt(string text, double size, string hex, bool bold = false)
         {
             var t = new TextBlock { Text = text, FontSize = size, Foreground = C(hex), TextWrapping = TextWrapping.Wrap };
@@ -226,47 +206,46 @@ static partial class Settings
             return t;
         }
 
+        // 卡片：白底 + 1px 细边 + 12px 圆角，和首页 deck 上那八张卡是同一张皮。
+        // 旧版是「透明底 + 只画一根下划线」的分节纸样式：统计 / 动画 / 关于 / 导入四页都靠它，
+        // 所以那四页看起来像上一个版本。改这里等于四页一起换皮，页面代码不用动。
         static Border Card(UIElement child)
         {
             var b = new Border
             {
-                Background = Brushes.Transparent, BorderBrush = C("#D9D9D6"),
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                CornerRadius = new CornerRadius(0), Padding = new Thickness(0, 13, 0, 13),
-                // 相邻两块用 -1 叠成一根线，读起来是一张纸的分节，不是一堆卡片
-                Margin = new Thickness(0, 0, 0, -1)
+                Background = C("#FFFFFF"), BorderBrush = C("#E6E8ED"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12), Padding = new Thickness(18, 16, 18, 16),
+                Margin = new Thickness(0, 0, 0, 12)
             };
             b.Child = child;
             return b;
         }
 
-        // 页面头：眉标（// ENGLISH）+ 中文粗体标题 + 一句说明 + 一根墨线。
-        // 动态生成的页面（动画 / 统计 / 关于）用它，静态页在 XAML 里写同样四行。
+        // 页面头：小眉标（// ENGLISH）+ 22px 粗体标题 + 一句说明。
+        // 动态生成的页面（动画 / 统计 / 关于）用它；静态页在 XAML 里写的是同一套字号。
+        // 旧的 34px 大标题 + 标题下 2px 黑粗线已删：那根线是这一版最像「旧皮肤」的东西，
+        // 而且和首页卡片墙的 12px 圆角语言完全不搭 —— 现在靠字重和留白分层，不靠画线。
         static void AddPageHead(Panel host, string eyebrow, string title, string sub, string tip = null)
         {
             if (host == null) return;
-            var head = new StackPanel { Orientation = Orientation.Horizontal };
-            head.Children.Add(new TextBlock
+            var eye = new TextBlock
             {
-                Text = title, FontSize = 34, FontWeight = FontWeights.Bold, Foreground = C("#161616")
-            });
-            head.Children.Add(new TextBlock
+                Text = eyebrow, FontSize = 10, FontWeight = FontWeights.Bold,
+                Foreground = C("#9AA1AC"), Margin = new Thickness(1, 0, 0, 6)
+            };
+            host.Children.Add(eye);
+            host.Children.Add(new TextBlock
             {
-                Text = eyebrow, FontSize = 10, FontWeight = FontWeights.Bold, Foreground = C("#5C5C5C"),
-                VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(14, 0, 0, 9)
+                Text = title, FontSize = 22, FontWeight = FontWeights.Bold, Foreground = C("#1F2430")
             });
-            host.Children.Add(head);
             var s = new TextBlock
             {
-                Text = sub, FontSize = 12, Foreground = C("#5C5C5C"), TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 6, 0, 0)
+                Text = sub, FontSize = 12, Foreground = C("#995A5F68"), TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 6, 0, 18)
             };
             if (!string.IsNullOrEmpty(tip)) s.ToolTip = tip;
             host.Children.Add(s);
-            // 纯黑一条到底：原来右端那 72px 主题色补丁和左段黑线接不上，看着像两个人画的
-            var rule = new Grid { Height = 2, Margin = new Thickness(0, 16, 0, 2) };
-            rule.Children.Add(new Border { Background = Brushes.Black });
-            host.Children.Add(rule);
         }
 
         // 实现在 Core.cs（与 Pet.exe 共用一份，Tests 工程直接对它跑断言）

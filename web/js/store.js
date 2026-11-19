@@ -13,7 +13,7 @@ export const DEFAULTS = {
   themeColor: '005FB8',
   bubbleH: 110,
   bubbleEveryMs: 600000,
-  bubbleFont: 'YouYuan',
+  bubbleFont: 'Microsoft YaHei',
   bubbleColor: '2F3542',
   bubbleInk: 'auto',
   bubbleFontSize: 10.5,

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -53,32 +53,39 @@ static partial class Settings
             }
         }
 
+        // 色板格子的外框：白底 + 1px 细边 + 8px 圆角（和按钮、卡片同一族）。
+        // 选中态不再用 2px 墨色粗框 —— 色块自己还带一条 1px 描边，两圈黑边叠在一起像「出错」，
+        // 而且 2px 一换选就抖一下。现在：粗细恒定 1px，靠「主题色细环 + 主题浅底 + 主题字」表达选中。
+        static Border ColorTileFrame(bool sel)
+        {
+            return new Border
+            {
+                Width = 64, Height = 54, Margin = new Thickness(0, 0, 8, 8),
+                Background = sel ? R("AccentSoft") : Brushes.White,
+                BorderBrush = sel ? R("AccentInk") : C("#E6E8ED"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Cursor = Cursors.Hand
+            };
+        }
+
         static Border MakeColorTile(Color c, string name, bool selected, Action<Color> onPick, Color? selColor = null)
         {
-            // 选中态：墨色描边 + 中性浅底 + 墨字。选框是控件本体，不跟主题色走
-            //（主题色只出现在色块自己身上、左栏读数、导航当前项）
-            var selBr = C("#212529");
-            var b = new Border
-            {
-                Width = 62, Height = 52, Margin = new Thickness(0, 0, 8, 8),
-                Background = selected ? C("#ECF0F4") : Brushes.White,
-                BorderBrush = selected ? selBr : C("#E1E5EB"),
-                BorderThickness = new Thickness(2),
-                CornerRadius = new CornerRadius(0), Cursor = Cursors.Hand,
-                ToolTip = name + " #" + HexOf(c)
-            };
+            Brush inkBr = R("AccentInk");
+            var b = ColorTileFrame(selected);
+            b.ToolTip = name + " #" + HexOf(c);
             var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             sp.Children.Add(new Border
             {
-                Width = 26, Height = 26, CornerRadius = new CornerRadius(0),
+                Width = 28, Height = 28, CornerRadius = new CornerRadius(7),
                 Background = new SolidColorBrush(c), HorizontalAlignment = HorizontalAlignment.Center,
-                BorderBrush = C("#00000022"), BorderThickness = new Thickness(1)
+                BorderBrush = C("#00000014"), BorderThickness = new Thickness(1)
             });
             sp.Children.Add(new TextBlock
             {
                 Text = name, FontSize = 10.5,
                 FontWeight = selected ? FontWeights.SemiBold : FontWeights.Normal,
-                Foreground = selected ? selBr : C("#7A8290"),
+                Foreground = selected ? inkBr : C("#7A8290"),
                 HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 3, 0, 0)
             });
             b.Child = sp;
@@ -109,21 +116,15 @@ static partial class Settings
             {
                 bool sel = string.Equals(p[0], cur, StringComparison.OrdinalIgnoreCase);
                 bool isAuto = p[0] == "auto";
-                var b = new Border
-                {
-                    Width = 62, Height = 52, Margin = new Thickness(0, 0, 8, 8),
-                    Background = sel ? C("#ECF0F4") : Brushes.White,
-                    BorderBrush = sel ? C("#212529") : C("#E1E5EB"),
-                    BorderThickness = new Thickness(2),
-                    CornerRadius = new CornerRadius(0), Cursor = Cursors.Hand,
-                    ToolTip = isAuto ? "按气泡底色自动选深浅" : "文字颜色 #" + p[0]
-                };
+                Brush inkBr = R("AccentInk");
+                var b = ColorTileFrame(sel);
+                b.ToolTip = isAuto ? "按气泡底色自动选深浅" : "文字颜色 #" + p[0];
                 var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 var sw = new Border
                 {
-                    Width = 26, Height = 26, CornerRadius = new CornerRadius(0),
+                    Width = 28, Height = 28, CornerRadius = new CornerRadius(7),
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    BorderBrush = C("#00000022"), BorderThickness = new Thickness(1),
+                    BorderBrush = C("#00000014"), BorderThickness = new Thickness(1),
                     Background = isAuto
                         ? (Brush)new LinearGradientBrush(Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0x33, 0x33, 0x33), 90)
                         : new SolidColorBrush(WpfParseHex(p[0], Color.FromRgb(0x1A, 0x1A, 0x1A)))
@@ -133,7 +134,7 @@ static partial class Settings
                 {
                     Text = p[1], FontSize = 11,
                     FontWeight = sel ? FontWeights.SemiBold : FontWeights.Normal,
-                    Foreground = sel ? C("#212529") : C("#7A8290"),
+                    Foreground = sel ? inkBr : C("#7A8290"),
                     HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 3, 0, 0)
                 });
                 b.Child = sp;
@@ -495,10 +496,10 @@ static partial class Settings
             var b = new Border
             {
                 Width = 168, Margin = new Thickness(0, 0, 10, 10),
-                Background = sel ? C("#ECF0F4") : Brushes.White,
-                BorderBrush = sel ? C("#212529") : C("#E1E5EB"),
-                BorderThickness = new Thickness(2),
-                CornerRadius = new CornerRadius(0),
+                Background = sel ? R("AccentSoft") : Brushes.White,
+                BorderBrush = sel ? R("AccentInk") : C("#E6E8ED"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(8, 6, 8, 6),
                 Cursor = Cursors.Hand,
                 ToolTip = tip
@@ -551,7 +552,7 @@ static partial class Settings
             {
                 Width = 168, Height = 78, Margin = new Thickness(0, 0, 10, 10),
                 Background = C("#FDFEFF"), BorderBrush = C("#D8DDE5"), BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(0), Cursor = Cursors.Hand, ToolTip = "上传自己的气泡外框图片"
+                CornerRadius = new CornerRadius(10), Cursor = Cursors.Hand, ToolTip = "上传自己的气泡外框图片"
             };
             var ut = new TextBlock
             {

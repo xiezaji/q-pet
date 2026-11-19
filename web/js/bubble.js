@@ -139,10 +139,11 @@ export function buildSkin({ w, bh, style, accent, frameImg, frameInfo, inkFix, k
 }
 
 // 字体：点数按 96 DPI 折算成像素，与桌面版同大
-export const FONTS = ['YouYuan', 'Noto Sans SC Medium', 'Noto Sans SC', 'DengXian', 'Microsoft YaHei UI', 'KaiTi', 'SimHei', 'FangSong'];
+export const FONTS = ['Microsoft YaHei', 'Noto Sans SC', 'Noto Sans SC Medium', 'DengXian', 'SimHei', 'KaiTi', 'FangSong', 'YouYuan'];
 const FALLBACK = '"Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif';
 export function fontCss(name, px) {
   const fam = {
+    'Microsoft YaHei': '"Microsoft YaHei", "微软雅黑"',
     YouYuan: '"YouYuan", "幼圆"', 'Noto Sans SC Medium': '"Noto Sans SC Medium", "Noto Sans SC"',
     'Noto Sans SC': '"Noto Sans SC"', DengXian: '"DengXian", "等线"', 'Microsoft YaHei UI': '"Microsoft YaHei UI"',
     KaiTi: '"KaiTi", "楷体", "STKaiti"', SimHei: '"SimHei", "黑体"', FangSong: '"FangSong", "仿宋", "STFangsong"',

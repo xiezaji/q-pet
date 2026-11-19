@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -79,7 +79,7 @@ static partial class Settings
                     Background = editing ? C("#F7FAFF") : Brushes.White,
                     BorderBrush = editing ? C("#9CC2F0") : C("#DFE3E9"),
                     BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(0),
+                    CornerRadius = new CornerRadius(8),
                     Margin = new Thickness(0, 0, 0, 6),
                     Padding = new Thickness(12, 8, 8, 8),
                     Cursor = editing ? Cursors.Arrow : Cursors.Hand

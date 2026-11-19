@@ -28,6 +28,7 @@ pet-char-time.txt
 pet-settings-selftest.txt
 pet-showpet-test.txt
 se_err.txt
+pet-theme-test.png
 .wbapp_*.genie
 pet-vol-cache/
 screenshots/
@@ -39,6 +40,7 @@ _notes/
 .workbuddy/
 
 # backups / archives
+_backup/
 _旧命名备份/
 *.rar
 *.zip

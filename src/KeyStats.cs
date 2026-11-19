@@ -147,6 +147,8 @@ static partial class Settings
                     Background = C("#F2F5F9"),
                     BorderBrush = C("#E9ECF1"),
                     BorderThickness = new Thickness(1),
+                    // 键帽跟着圆角族走（小圆角：键本身只有 38 高，半径再大就像药片）
+                    CornerRadius = new CornerRadius(4),
                     SnapsToDevicePixels = true
                 };
                 var cap = new TextBlock

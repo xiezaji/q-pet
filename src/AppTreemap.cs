@@ -39,6 +39,15 @@ static partial class Settings
     static readonly Dictionary<string, BitmapSource> _appIconCache = new Dictionary<string, BitmapSource>();
     static readonly Dictionary<string, string> _exeCache = new Dictionary<string, string>();
 
+    // 只画头部。软件时长分布比角色陡得多，排到后面的往往只剩几十像素宽，
+    // 名字放不下、图标缩成一点，除了把图弄脏没有任何信息量。
+    const int AppMapHead = 8;          // 候选上限，再多也没必要算
+
+    // 相对占比低于这个就不画。按画布 660×150 算，4.5% ≈ 4500px²，
+    // 正好卡在「能放下 74×40 的名字区」那条线上；再小就只能显示个图标。
+    // 用比例而不是固定块数：某天第一名占九成时，第 3 名之后本来就没必要画。
+    const double AppMapMinShare = 0.045;
+
     // ---------- 卡片里的那块画布 ----------
     static Canvas MakeAppMap()
     {
@@ -61,7 +70,15 @@ static partial class Settings
     {
         if (_appMap == null) return;
         var list = apps.OrderByDescending(x => x.Value).ThenBy(x => x.Key).ToList();
-        string sig = string.Join(",", list.Take(14).Select(x => x.Key).ToArray());
+        var head = list.Take(AppMapHead).ToList();
+        double headTotal = Math.Max(1, head.Sum(x => x.Value));
+
+        // 第一名无条件保留（这张图就是在说「谁最占时间」），其余按占比筛。
+        // 至少留 2 块：只剩一块时整张图就是一个色块，看不出「谁比谁多」。
+        var shown = head.Where((x, i) => i == 0 || (double)x.Value / headTotal >= AppMapMinShare).ToList();
+        if (shown.Count < 2 && head.Count >= 2) shown = head.Take(2).ToList();
+
+        string sig = string.Join(",", shown.Select(x => x.Key).ToArray());
         bool stale = (DateTime.Now - _appMapAt).TotalSeconds >= 3.5;
         if (!rebuild && sig == _appMapSig && _appTiles.Count > 0)
         {
@@ -71,10 +88,10 @@ static partial class Settings
         _appMapAt = DateTime.Now;
 
         // 只画真实软件：不要「其他 N 个」这种合成块（它没有图标、也不代表任何程序）。
-        // 面积按这 14 家的**相对**占比铺满画布 —— 这张图回答的是「头部软件里谁更占时间」，
+        // 面积按入选这几家的**相对**占比铺满画布 —— 这张图回答的是「头部软件里谁更占时间」，
         // 悬停里的百分比仍按全机总时长算，读数不会骗人。
         _appAllTotal = Math.Max(1, list.Sum(x => x.Value));
-        _appApps = list.Take(14).ToList();
+        _appApps = shown;
         LayoutAppMap();
         PaintAppMap(apps);
     }
