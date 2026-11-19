@@ -79,8 +79,10 @@ static partial class Settings
                 head.ColumnDefinitions.Add(new ColumnDefinition());
                 var box = new Border
                 {
-                    Width = 104, Height = 104, Background = C("#FAFBFD"),
-                    BorderBrush = C("#EEF1F6"), BorderThickness = new Thickness(1),
+                    // 底色不能太白：卡片本身已经是白底，预览框再取 #FAFBFD 就等于没有框，
+                    // 角色像凭空浮在卡上。压到 #F2F5FA 才看得出这是「一小块取景窗」。
+                    Width = 104, Height = 104, Background = C("#F2F5FA"),
+                    BorderBrush = C("#E7EBF2"), BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(8), Margin = new Thickness(0, 0, 12, 0)
                 };
                 AnimPreview pv = new AnimPreview(96);
